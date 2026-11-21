@@ -14,7 +14,7 @@ import java.text.NumberFormat
 import java.util.Locale
 
 object BalanceNotificationManager {
-    private const val CHANNEL_ID = "deepseek_balance_updates"
+    private const val CHANNEL_ID = "deepseek_balance_updates_v2"
     private const val BALANCE_NOTIFICATION_ID = 62401
     private const val REMINDER_NOTIFICATION_ID = 62402
     fun showBalance(context: Context, snapshot: BalanceSnapshot) {
@@ -38,8 +38,11 @@ object BalanceNotificationManager {
         createChannel(context)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(title).setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body)).setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true).setOnlyAlertOnce(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build()
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body)).setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setTicker(title + "：" + body).setWhen(System.currentTimeMillis()).setShowWhen(true)
+            .setOngoing(id == BALANCE_NOTIFICATION_ID).setAutoCancel(id != BALANCE_NOTIFICATION_ID)
+            .setOnlyAlertOnce(false).setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_STATUS).build()
         try { NotificationManagerCompat.from(context).notify(id, notification) }
         catch (_: SecurityException) { /* Permission may have been revoked by the user. */ }
     }
@@ -48,7 +51,7 @@ object BalanceNotificationManager {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(NotificationChannel(
                 CHANNEL_ID, "DeepSeek 余额通知", NotificationManager.IMPORTANCE_DEFAULT
-            ).apply { description = "余额更新与余额不可用提醒" })
+            ).apply { description = "账户余额内容与低余额提醒" })
         }
     }
     private fun format(value: String): String = runCatching {

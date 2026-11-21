@@ -77,6 +77,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.bin624.dsh.data.BalanceSnapshot
+import com.bin624.dsh.data.BalanceHistoryPoint
+import com.bin624.dsh.data.BalanceHistoryStore
 import com.bin624.dsh.data.DeepSeekBalanceApi
 import com.bin624.dsh.security.ApiKeyStore
 import com.bin624.dsh.ui.components.LiquidGlassBottomBar
@@ -109,6 +111,7 @@ fun DeepSeekApp() {
     var keyInput by remember { mutableStateOf("") }
     var keySaveError by remember { mutableStateOf<String?>(null) }
     var balance by remember { mutableStateOf<BalanceSnapshot?>(null) }
+    var balanceHistory by remember { mutableStateOf(BalanceHistoryStore.read(context)) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
     var lastUpdated by remember { mutableStateOf<String?>(null) }
@@ -202,6 +205,8 @@ fun DeepSeekApp() {
             try {
                 val snapshot = DeepSeekBalanceApi.getBalance(key)
                 balance = snapshot
+                BalanceHistoryStore.record(context, snapshot)
+                balanceHistory = BalanceHistoryStore.read(context)
                 isConnected = true
                 lastUpdated = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                 if (statusBalanceNotificationEnabled) BalanceNotificationManager.showBalance(context, snapshot)
@@ -280,27 +285,10 @@ fun DeepSeekApp() {
                         color = Palette.secondary
                     )
                 }
-                Box(
-                    Modifier
-                        .size(54.dp)
-                        .shadow(8.dp, CircleShape)
-                        .background(Palette.card, CircleShape)
-                        .clickable {
-                            val key = apiKey
-                            if (key.isNullOrBlank()) {
-                                selectedTab = TAB_SETTINGS
-                            } else {
-                                requestBalance(key)
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("↻", color = Palette.text, fontSize = 27.sp, fontWeight = FontWeight.Medium)
-                }
             }
 
             when (selectedTab) {
-                TAB_BALANCE -> BalanceDetailsScreen(balance, apiKey != null, lastUpdated)
+                TAB_BALANCE -> BalanceDetailsScreen(balance, apiKey != null, lastUpdated, balanceHistory)
                 TAB_SETTINGS -> SettingsScreen(
                     currentApiKey = apiKey,
                     keyInput = keyInput,
@@ -348,9 +336,8 @@ fun DeepSeekApp() {
                     error = errorMessage,
                     onRefresh = {
                         val key = apiKey
-                        if (key.isNullOrBlank()) selectedTab = TAB_SETTINGS else requestBalance(key)
+                        if (key.isNullOrBlank()) errorMessage = "请先到设置页配置 API Key，再进行余额查询。" else requestBalance(key)
                     },
-                    onManageKey = { selectedTab = TAB_SETTINGS }
                 )
             }
 
@@ -377,8 +364,7 @@ private fun OverviewScreen(
     isConnected: Boolean,
     lastUpdated: String?,
     error: String?,
-    onRefresh: () -> Unit,
-    onManageKey: () -> Unit
+    onRefresh: () -> Unit
 ) {
     val first = balance?.balances?.firstOrNull()
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -404,18 +390,6 @@ private fun OverviewScreen(
                 amount = first?.let { formatMoney(it.toppedUpBalance, it.currency) } ?: "--",
                 hint = "账户充值",
                 modifier = Modifier.weight(1f)
-            )
-        }
-
-        ApiKeySummaryCard(
-            hasApiKey = hasApiKey,
-            onManageKey = onManageKey
-        )
-
-        if (!hasApiKey) {
-            InfoCard(
-                title = "开始查询",
-                body = "先添加 DeepSeek API Key。密钥会在本机加密保存，余额请求直接发送到 DeepSeek 官方 API。"
             )
         }
 
@@ -583,12 +557,18 @@ private fun ApiKeySummaryCard(
 private fun BalanceDetailsScreen(
     balance: BalanceSnapshot?,
     hasApiKey: Boolean,
-    lastUpdated: String?
+    lastUpdated: String?,
+    history: List<BalanceHistoryPoint>
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         InfoCard(
             title = "余额明细",
             body = if (lastUpdated == null) "尚未获取余额数据。" else "数据更新时间：" + lastUpdated
+        )
+
+        BalanceHistoryChart(
+            points = history,
+            currency = balance?.balances?.firstOrNull()?.currency ?: "CNY"
         )
 
         if (balance == null || balance.balances.isEmpty()) {
@@ -630,6 +610,55 @@ private fun BalanceDetailsScreen(
                 body = "此状态来自 DeepSeek 返回的 is_available 字段，表示余额是否足以支持 API 调用。"
             )
         }
+    }
+}
+
+@Composable
+private fun BalanceHistoryChart(points: List<BalanceHistoryPoint>, currency: String) {
+    val values = points.filter { it.currency.equals(currency, ignoreCase = true) }.takeLast(30)
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Palette.card).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("余额变化趋势", color = Palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text("根据每次成功查询记录余额变化", color = Palette.secondary, fontSize = 11.sp)
+        if (values.size < 2) {
+            Box(Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                Text("至少成功查询两次后显示折线图", color = Palette.secondary, fontSize = 12.sp)
+            }
+        } else {
+            val amounts = values.map { it.amount }
+            val minValue = amounts.minOrNull() ?: 0.0
+            val maxValue = amounts.maxOrNull() ?: 0.0
+            val range = (maxValue - minValue).takeIf { it > 0.000001 } ?: 1.0
+            Canvas(Modifier.fillMaxWidth().height(160.dp)) {
+                val left = 12.dp.toPx()
+                val right = size.width - 12.dp.toPx()
+                val top = 12.dp.toPx()
+                val bottom = size.height - 14.dp.toPx()
+                for (i in 0..3) {
+                    val y = top + (bottom - top) * i / 3f
+                    drawLine(Palette.divider, Offset(left, y), Offset(right, y), strokeWidth = 1.dp.toPx())
+                }
+                val path = Path()
+                values.forEachIndexed { index, point ->
+                    val x = if (values.size == 1) left else left + (right - left) * index / (values.size - 1).toFloat()
+                    val y = bottom - (((point.amount - minValue) / range).toFloat() * (bottom - top))
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path, Palette.blue, style = Stroke(width = 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                values.forEachIndexed { index, point ->
+                    val x = left + (right - left) * index / (values.size - 1).toFloat()
+                    val y = bottom - (((point.amount - minValue) / range).toFloat() * (bottom - top))
+                    drawCircle(Palette.blue, radius = 4.dp.toPx(), center = Offset(x, y))
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("最低 " + formatMoney(minValue.toString(), currency), color = Palette.secondary, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                Text("最高 " + formatMoney(maxValue.toString(), currency), color = Palette.secondary, fontSize = 10.sp)
+            }
+        }
+        Text("说明：仅记录本版本安装后的余额快照，不代表官方 Token 消耗账单。", color = Palette.secondary, fontSize = 10.sp, lineHeight = 14.sp)
     }
 }
 
@@ -824,11 +853,6 @@ private fun SettingsScreen(
                 AppearanceChoice("浅色", appearanceMode == AppSettings.APPEARANCE_LIGHT, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_LIGHT) }
                 AppearanceChoice("深色", appearanceMode == AppSettings.APPEARANCE_DARK, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_DARK) }
                 AppearanceChoice("跟随系统", appearanceMode == AppSettings.APPEARANCE_SYSTEM, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_SYSTEM) }
-            }
-            DividerLine()
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("关于应用", color = Palette.text, modifier = Modifier.weight(1f))
-                Text("1.50  ›", color = Palette.secondary)
             }
         }
         InfoCard("接口说明", "本应用展示 DeepSeek 官方余额接口返回的账户可用状态、总余额、赠送余额和充值余额。接口不提供 Token 消耗明细或账单历史。")
