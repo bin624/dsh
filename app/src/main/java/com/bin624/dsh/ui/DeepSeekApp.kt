@@ -3,6 +3,7 @@ package com.bin624.dsh.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.graphics.Movie
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -12,6 +13,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import android.graphics.drawable.AnimatedImageDrawable
@@ -917,10 +924,18 @@ private fun AppearanceChoice(label: String, selected: Boolean, modifier: Modifie
 @Composable
 private fun WhaleStatusBlob(connected: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val imageRes = if (connected) {
-        com.bin624.dsh.R.drawable.whale_connected
-    } else {
-        com.bin624.dsh.R.drawable.whale_disconnected
+    val gifMovie = remember(context) {
+        runCatching {
+            context.resources.openRawResource(com.bin624.dsh.R.drawable.whale_connected).use { Movie.decodeStream(it) }
+        }.getOrNull()
+    }
+    var gifFrame by remember { mutableIntStateOf(0) }
+    LaunchedEffect(connected, gifMovie) {
+        if (connected && gifMovie != null) {
+            while (true) {
+                withFrameNanos { frame -> gifFrame = ((frame / 1_000_000L) % gifMovie.duration().coerceAtLeast(1)).toInt() }
+            }
+        }
     }
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
@@ -944,13 +959,23 @@ private fun WhaleStatusBlob(connected: Boolean, modifier: Modifier = Modifier) {
             ), style = Fill)
             drawPath(blob, Color.White.copy(alpha = 0.34f), style = Stroke(1.5.dp.toPx()))
         }
-        Image(
-            painter = painterResource(id = imageRes),
-            contentDescription = if (connected) "连接成功的鲸鱼娘动画" else "未连接的鲸鱼娘",
-            modifier = Modifier.fillMaxSize(0.78f),
-            contentScale = androidx.compose.ui.layout.ContentScale.Fit
-        )
-        if (!connected) {
+        if (connected && gifMovie != null) {
+            Canvas(Modifier.fillMaxSize(0.84f)) {
+                gifMovie.setTime(gifFrame)
+                drawIntoCanvas { canvas ->
+                    val scale = minOf(size.width / gifMovie.width().toFloat(), size.height / gifMovie.height().toFloat())
+                    val w = gifMovie.width() * scale
+                    val h = gifMovie.height() * scale
+                    gifMovie.draw(canvas.nativeCanvas, (size.width - w) / 2f, (size.height - h) / 2f)
+                }
+            }
+        } else {
+            Image(
+                painter = painterResource(com.bin624.dsh.R.drawable.whale_disconnected),
+                contentDescription = "未连接状态鲸鱼娘",
+                modifier = Modifier.fillMaxSize(0.84f),
+                contentScale = ContentScale.Fit
+            )
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp)
                 .clip(CircleShape).background(Color.White.copy(alpha = 0.82f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
                 Text("待连接", color = Color(0xFF41658C), fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
