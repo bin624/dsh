@@ -209,44 +209,38 @@ fun LiquidGlassBottomBar(
 
         // The fixed vessel remains vertically centered and does not travel with
         // the active lens. Only its backdrop scale responds gently to pressure.
-        CompositionLocalProvider(
-            LocalLiquidBottomTabScale provides {
-                lerp(1f, 1.14f, dampedDragAnimation.pressProgress)
-            }
-        ) {
-            Row(
-                Modifier
-                    .graphicsLayer { translationX = panelOffset }
-                    .drawBackdrop(
-                        backdrop = backdrop,
-                        shape = { Capsule() },
-                        effects = {
-                            vibrancy()
-                            blur(8.dp.toPx())
-                            lens(24.dp.toPx(), 24.dp.toPx())
-                        },
-                        layerBlock = {
-                            val progress = dampedDragAnimation.pressProgress
-                            val scale = lerp(1f, 1f + 12.dp.toPx() / size.width, progress)
-                            scaleX = scale
-                            scaleY = scale
-                        },
-                        onDrawSurface = { drawRect(containerColor) }
-                    )
-                    .then(interactiveHighlight.modifier)
-                    .height(68.dp)
-                    .fillMaxWidth()
-                    .padding(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                content = tabsContent
-            )
-        }
+        Row(
+            Modifier
+                .graphicsLayer { translationX = panelOffset }
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { Capsule() },
+                    effects = {
+                        vibrancy()
+                        blur(8.dp.toPx())
+                        lens(24.dp.toPx(), 24.dp.toPx())
+                    },
+                    layerBlock = {
+                        val progress = dampedDragAnimation.pressProgress
+                        val scale = lerp(1f, 1f + 12.dp.toPx() / size.width, progress)
+                        scaleX = scale
+                        scaleY = scale
+                    },
+                    onDrawSurface = { drawRect(containerColor) }
+                )
+                .then(interactiveHighlight.modifier)
+                .height(68.dp)
+                .fillMaxWidth()
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = tabsContent
+        )
 
         // Capture a duplicate tab layer. The active lens samples both this tab
         // layer and the page behind the bar, so labels and glyphs refract through it.
         CompositionLocalProvider(
             LocalLiquidBottomTabScale provides {
-                lerp(1f, 1.14f, dampedDragAnimation.pressProgress)
+                lerp(1f, 1.20f, dampedDragAnimation.pressProgress)
             }
         ) {
             Row(
