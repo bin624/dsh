@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import com.bin624.dsh.data.BalanceSnapshot
 import com.bin624.dsh.data.BalanceHistoryPoint
 import com.bin624.dsh.data.BalanceHistoryStore
@@ -121,6 +122,7 @@ fun DeepSeekApp() {
     var statusBalanceNotificationEnabled by rememberSaveable { mutableStateOf(appSettings.statusBalanceNotificationEnabled) }
     var settingsMessage by remember { mutableStateOf<String?>(null) }
     var pendingNotificationOption by remember { mutableIntStateOf(0) }
+    var showAboutPage by rememberSaveable { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -258,12 +260,12 @@ fun DeepSeekApp() {
 
     val headerTitle = when (selectedTab) {
         TAB_BALANCE -> "余额明细"
-        TAB_SETTINGS -> "设置"
+        TAB_SETTINGS -> if (showAboutPage) "关于" else "设置"
         else -> "仪表盘"
     }
     val headerSubtitle = when (selectedTab) {
         TAB_BALANCE -> "查看各币种的账户余额"
-        TAB_SETTINGS -> "提醒、刷新、外观与连接设置"
+        TAB_SETTINGS -> if (showAboutPage) "开源信息与社群" else "提醒、刷新、外观与连接设置"
         else -> "DeepSeek API 账户概览"
     }
 
@@ -288,6 +290,19 @@ fun DeepSeekApp() {
                     .padding(top = 18.dp, bottom = 18.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (selectedTab == TAB_SETTINGS && showAboutPage) {
+                    Box(
+                        Modifier
+                            .padding(end = 12.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Palette.card)
+                            .clickable { showAboutPage = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("←", color = Palette.text, fontSize = 27.sp)
+                    }
+                }
                 Column(Modifier.weight(1f)) {
                     Text(
                         headerTitle,
@@ -306,7 +321,10 @@ fun DeepSeekApp() {
 
             when (selectedTab) {
                 TAB_BALANCE -> BalanceDetailsScreen(balance, apiKey != null, lastUpdated, balanceHistory)
-                TAB_SETTINGS -> SettingsScreen(
+                TAB_SETTINGS -> if (showAboutPage) {
+                    AboutScreen()
+                } else SettingsScreen(
+                    onOpenAbout = { showAboutPage = true },
                     currentApiKey = apiKey,
                     keyInput = keyInput,
                     onKeyInputChange = { keyInput = it; settingsMessage = null },
@@ -367,18 +385,20 @@ fun DeepSeekApp() {
                 )
             }
 
-            Spacer(Modifier.height(124.dp))
+            Spacer(Modifier.height(if (showAboutPage) 32.dp else 124.dp))
         }
 
-        LiquidGlassBottomBar(
-            backdrop = pageBackdrop,
-            selectedIndex = selectedTab,
-            onSelect = { selectedTab = it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, bottom = 10.dp)
-        )
+        if (!showAboutPage) {
+            LiquidGlassBottomBar(
+                backdrop = pageBackdrop,
+                selectedIndex = selectedTab,
+                onSelect = { selectedTab = it; showAboutPage = false },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, bottom = 10.dp)
+            )
+        }
     }
 }
 
@@ -771,6 +791,7 @@ private fun ApiKeyScreen(
 
 @Composable
 private fun SettingsScreen(
+    onOpenAbout: () -> Unit,
     currentApiKey: String?,
     keyInput: String,
     onKeyInputChange: (String) -> Unit,
@@ -884,7 +905,7 @@ private fun SettingsScreen(
             }
         }
 
-        SectionHeading("通用", "外观与应用信息")
+        SectionHeading("通用", "外观主题设置")
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.card).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("外观", color = Palette.text, fontSize = 14.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -894,6 +915,118 @@ private fun SettingsScreen(
             }
         }
         InfoCard("接口说明", "本应用展示 DeepSeek 官方余额接口返回的账户可用状态、总余额、赠送余额和充值余额。接口不提供 Token 消耗明细或账单历史。")
+
+        SectionHeading("使用与支持", "应用信息与相关链接")
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(Palette.card)
+                .clickable(onClick = onOpenAbout)
+                .padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("ⓘ", color = Palette.secondary, fontSize = 25.sp)
+            Text("关于", color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f).padding(start = 14.dp))
+            Text("›", color = Palette.secondary, fontSize = 24.sp)
+        }
+    }
+}
+
+@Composable
+private fun AboutScreen() {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    @Suppress("DEPRECATION")
+    val versionName = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "1.0.0"
+    }
+
+    val repositoryUrl = "https://github.com/bin624/dsh"
+    val communityUrl = "https://qun.qq.com/universal-share/share?ac=1&authKey=Qswq9%2BQxJ6iwlOc1XhADBhl%2FkpwPfOkYVIYnHVCX%2BKcaEQUnmFpEZlbEwRQF47rg&busi_data=eyJncm91cENvZGUiOiI5NzYxOTQwMjgiLCJ0b2tlbiI6IktJQW5QWTFYV3MvbE9hQk93VmthR0lXcUU5K0swQ2FaZ012VG1mRVRqMUxBZFJtdTVKd0duUlBWZ3BTYjc0YWciLCJ1aW4iOiIyMTIzMjg1MjkifQ%3D%3D&data=iFV0Zy5vlsKD4pnGtptD8UBl35E427AnD59dlr8FRfNOegQVHPvu9vzKkfmnuRENv2L1iSEeSOXFQscngy9CSQ&svctype=4&tempid=h5_group_info"
+
+    Column(
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(22.dp)
+    ) {
+        Spacer(Modifier.height(22.dp))
+        Box(
+            Modifier
+                .size(148.dp)
+                .clip(CircleShape)
+                .background(Palette.card),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(id = com.bin624.dsh.R.drawable.whale_disconnected),
+                contentDescription = "DeepSeek 余额图标",
+                modifier = Modifier.fillMaxSize().padding(17.dp),
+                contentScale = ContentScale.Fit
+            )
+        }
+        Text("DeepSeek 余额", color = Palette.text, fontSize = 31.sp, fontWeight = FontWeight.Medium)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(26.dp))
+                .background(Palette.card)
+                .padding(horizontal = 18.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 19.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("ⓘ", color = Palette.secondary, fontSize = 24.sp)
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text("版本", color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(versionName, color = Palette.secondary, fontSize = 13.sp)
+                }
+            }
+            DividerLine()
+            AboutActionRow(
+                icon = "◎",
+                title = "开源",
+                detail = repositoryUrl,
+                onClick = { runCatching { uriHandler.openUri(repositoryUrl) } }
+            )
+            DividerLine()
+            AboutActionRow(
+                icon = "♧",
+                title = "社群",
+                detail = "加入 QQ 群",
+                onClick = { runCatching { uriHandler.openUri(communityUrl) } }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutActionRow(
+    icon: String,
+    title: String,
+    detail: String,
+    onClick: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 19.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(icon, color = Palette.secondary, fontSize = 24.sp)
+        Column(Modifier.weight(1f).padding(start = 14.dp, end = 8.dp)) {
+            Text(title, color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(detail, color = Palette.secondary, fontSize = 13.sp, lineHeight = 18.sp)
+        }
+        Text("↗", color = Palette.secondary, fontSize = 20.sp)
     }
 }
 
