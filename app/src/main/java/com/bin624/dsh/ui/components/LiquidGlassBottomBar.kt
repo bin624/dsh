@@ -79,10 +79,12 @@ fun LiquidGlassBottomBar(
 ) {
     val isLightTheme = !isSystemInDarkTheme()
     val accentColor = if (isLightTheme) Color(0xFF087FF5) else Color(0xFF0091FF)
-    val containerColor = if (isLightTheme) {
-        Color(0xFFFAFAFA).copy(alpha = 0.43f)
+    // A low-opacity cool tint lets the sampled page remain visible through the
+    // vessel. The bar is glass, not an opaque white card.
+    val vesselTint = if (isLightTheme) {
+        Color(0xFFDDE5F2).copy(alpha = 0.13f)
     } else {
-        Color(0xFF171717).copy(alpha = 0.45f)
+        Color(0xFF242C3C).copy(alpha = 0.24f)
     }
 
     val items = listOf(
@@ -217,18 +219,22 @@ fun LiquidGlassBottomBar(
                     shape = { Capsule() },
                     effects = {
                         vibrancy()
-                        blur(8.dp.toPx())
-                        lens(24.dp.toPx(), 24.dp.toPx())
+                        blur(6.dp.toPx())
+                        lens(18.dp.toPx(), 22.dp.toPx())
                     },
+                    highlight = { Highlight.Default.copy(alpha = 0.52f) },
+                    shadow = { Shadow(alpha = 0.12f) },
+                    innerShadow = { InnerShadow(radius = 7.dp, alpha = 0.08f) },
                     layerBlock = {
                         val progress = dampedDragAnimation.pressProgress
                         val scale = lerp(1f, 1f + 12.dp.toPx() / size.width, progress)
                         scaleX = scale
                         scaleY = scale
                     },
-                    onDrawSurface = { drawRect(containerColor) }
+                    onDrawSurface = { drawRect(vesselTint) }
                 )
                 .then(interactiveHighlight.modifier)
+                .border(0.8.dp, Color.White.copy(alpha = 0.62f), Capsule())
                 .height(68.dp)
                 .fillMaxWidth()
                 .padding(4.dp),
@@ -254,12 +260,9 @@ fun LiquidGlassBottomBar(
                         shape = { Capsule() },
                         effects = {
                             vibrancy()
-                            blur(8.dp.toPx())
-                            lens(24.dp.toPx(), 24.dp.toPx())
                         },
-                        onDrawSurface = { drawRect(containerColor) }
+                        onDrawSurface = { drawRect(Color.Transparent) }
                     )
-                    .then(interactiveHighlight.modifier)
                     .height(60.dp)
                     .fillMaxWidth()
                     .padding(horizontal = 4.dp)
@@ -289,21 +292,21 @@ fun LiquidGlassBottomBar(
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
                         lens(
-                            10.dp.toPx() * progress,
-                            14.dp.toPx() * progress,
+                            9.dp.toPx() + 7.dp.toPx() * progress,
+                            12.dp.toPx() + 8.dp.toPx() * progress,
                             chromaticAberration = true
                         )
                     },
                     highlight = {
-                        Highlight.Default.copy(alpha = dampedDragAnimation.pressProgress)
+                        Highlight.Default.copy(alpha = 0.42f + 0.38f * dampedDragAnimation.pressProgress)
                     },
                     shadow = {
-                        Shadow(alpha = dampedDragAnimation.pressProgress)
+                        Shadow(alpha = 0.09f + 0.13f * dampedDragAnimation.pressProgress)
                     },
                     innerShadow = {
                         InnerShadow(
-                            radius = 8.dp * dampedDragAnimation.pressProgress,
-                            alpha = dampedDragAnimation.pressProgress
+                            radius = 5.dp + 4.dp * dampedDragAnimation.pressProgress,
+                            alpha = 0.08f + 0.12f * dampedDragAnimation.pressProgress
                         )
                     },
                     layerBlock = {
@@ -315,12 +318,12 @@ fun LiquidGlassBottomBar(
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
-                        drawRect(
-                            if (isLightTheme) Color.Black.copy(alpha = 0.10f)
-                            else Color.White.copy(alpha = 0.10f),
-                            alpha = 1f - progress
-                        )
-                        drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                        val lensTint = if (isLightTheme) {
+                            Color(0xFFCADBFF).copy(alpha = 0.24f + 0.10f * progress)
+                        } else {
+                            Color(0xFF8FB8FF).copy(alpha = 0.16f + 0.10f * progress)
+                        }
+                        drawRect(lensTint)
                     }
                 )
                 .height(56.dp)
