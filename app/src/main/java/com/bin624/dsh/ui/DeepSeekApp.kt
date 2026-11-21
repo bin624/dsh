@@ -444,7 +444,11 @@ private fun BalanceHeroCard(
             .clip(RoundedCornerShape(32.dp))
             .background(
                 Brush.linearGradient(
-                    listOf(Color(0xFFFFFCFD), Color(0xFFE6EDFC), Color(0xFFF4F1F7))
+                    if (Palette.isDarkTheme) {
+                        listOf(Color(0xFF1C2C42), Color(0xFF253D5A), Color(0xFF1A2738))
+                    } else {
+                        listOf(Color(0xFFFFFCFD), Color(0xFFE6EDFC), Color(0xFFF4F1F7))
+                    }
                 )
             )
             .padding(22.dp)
