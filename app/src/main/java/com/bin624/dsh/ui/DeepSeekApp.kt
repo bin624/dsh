@@ -192,11 +192,12 @@ fun DeepSeekApp() {
         }
     }
 
-    fun requestBalance(key: String) {
+    fun requestBalance(key: String, isConnectionTest: Boolean = false) {
         if (isRefreshing) return
         scope.launch {
             isRefreshing = true
             errorMessage = null
+            if (isConnectionTest) settingsMessage = "正在测试 DeepSeek 连接…"
             try {
                 val snapshot = DeepSeekBalanceApi.getBalance(key)
                 balance = snapshot
@@ -204,9 +205,11 @@ fun DeepSeekApp() {
                 lastUpdated = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                 if (statusBalanceNotificationEnabled) BalanceNotificationManager.showBalance(context, snapshot)
                 if (balanceReminderEnabled && !snapshot.isAvailable) BalanceNotificationManager.showUnavailable(context)
+                if (isConnectionTest) settingsMessage = "连接成功，DeepSeek 余额接口已返回数据。"
             } catch (exception: Exception) {
                 isConnected = false
                 errorMessage = exception.message ?: "查询失败，请检查网络后重试。"
+                if (isConnectionTest) settingsMessage = "连接失败：" + (exception.message ?: "请检查 API Key 和网络。")
             } finally {
                 isRefreshing = false
             }
@@ -312,7 +315,7 @@ fun DeepSeekApp() {
                     onTestConnection = {
                         val candidate = keyInput.trim().ifBlank { apiKey.orEmpty() }
                         if (candidate.isBlank()) settingsMessage = "请先输入 API Key。"
-                        else requestBalance(candidate)
+                        else requestBalance(candidate, isConnectionTest = true)
                     },
                     onRemoveKey = {
                         runCatching { keyStore.clear() }
@@ -421,6 +424,7 @@ private fun BalanceHeroCard(
     balance: BalanceSnapshot?,
     hasApiKey: Boolean,
     isRefreshing: Boolean,
+    isConnected: Boolean,
     lastUpdated: String?,
     onRefresh: () -> Unit
 ) {
