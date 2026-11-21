@@ -1,5 +1,36 @@
 package com.bin624.dsh.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.material.Switch
+import androidx.compose.material.SwitchDefaults
+import androidx.compose.material.DropdownMenu
+import androidx.compose.material.DropdownMenuItem
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import com.bin624.dsh.notifications.BalanceNotificationManager
+import com.bin624.dsh.settings.AppSettings
+import com.bin624.dsh.settings.AutoRefreshScheduler
+import kotlin.math.cos
+import kotlin.math.sin
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -60,13 +91,15 @@ import java.util.Locale
 
 private const val TAB_OVERVIEW = 0
 private const val TAB_BALANCE = 1
-private const val TAB_KEY = 2
-private const val TAB_SETTINGS = 3
+private const val TAB_SETTINGS = 2
+private const val NOTIFY_BALANCE_REMINDER = 1
+private const val NOTIFY_STATUS_BALANCE = 2
 
 @Composable
 fun DeepSeekApp() {
     val context = LocalContext.current
     val keyStore = remember { ApiKeyStore(context) }
+    val appSettings = remember { AppSettings(context) }
     val scope = rememberCoroutineScope()
     val pageBackdrop = rememberLayerBackdrop()
 
@@ -79,7 +112,85 @@ fun DeepSeekApp() {
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
     var lastUpdated by remember { mutableStateOf<String?>(null) }
-    var selectedTab by rememberSaveable { mutableIntStateOf(TAB_OVERVIEW) }
+    var selectedTab by rememberSaveable("mainTabV2") { mutableIntStateOf(TAB_OVERVIEW) }
+    var isConnected by remember { mutableStateOf(false) }
+    var appearanceMode by rememberSaveable { mutableStateOf(appSettings.appearanceMode) }
+    var refreshIntervalMinutes by rememberSaveable { mutableIntStateOf(appSettings.refreshIntervalMinutes) }
+    var balanceReminderEnabled by rememberSaveable { mutableStateOf(appSettings.balanceReminderEnabled) }
+    var statusBalanceNotificationEnabled by rememberSaveable { mutableStateOf(appSettings.statusBalanceNotificationEnabled) }
+    var settingsMessage by remember { mutableStateOf<String?>(null) }
+    var pendingNotificationOption by remember { mutableIntStateOf(0) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val option = pendingNotificationOption
+        pendingNotificationOption = 0
+        if (granted) {
+            when (option) {
+                NOTIFY_BALANCE_REMINDER -> {
+                    balanceReminderEnabled = true
+                    appSettings.balanceReminderEnabled = true
+                }
+                NOTIFY_STATUS_BALANCE -> {
+                    statusBalanceNotificationEnabled = true
+                    appSettings.statusBalanceNotificationEnabled = true
+                }
+            }
+            settingsMessage = "通知权限已开启。"
+        } else {
+            settingsMessage = "系统未授予通知权限，请在系统设置中允许本应用发送通知。"
+        }
+    }
+
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val useDarkTheme = when (appearanceMode) {
+        AppSettings.APPEARANCE_LIGHT -> false
+        AppSettings.APPEARANCE_DARK -> true
+        else -> systemDark
+    }
+    androidx.compose.runtime.SideEffect {
+        Palette.isDarkTheme = useDarkTheme
+        (context as? android.app.Activity)?.window?.let { window ->
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                isAppearanceLightStatusBars = !useDarkTheme
+                isAppearanceLightNavigationBars = !useDarkTheme
+            }
+        }
+    }
+
+    fun updateNotificationOption(option: Int, enabled: Boolean) {
+        if (!enabled) {
+            when (option) {
+                NOTIFY_BALANCE_REMINDER -> {
+                    balanceReminderEnabled = false
+                    appSettings.balanceReminderEnabled = false
+                }
+                NOTIFY_STATUS_BALANCE -> {
+                    statusBalanceNotificationEnabled = false
+                    appSettings.statusBalanceNotificationEnabled = false
+                }
+            }
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingNotificationOption = option
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            when (option) {
+                NOTIFY_BALANCE_REMINDER -> {
+                    balanceReminderEnabled = true
+                    appSettings.balanceReminderEnabled = true
+                }
+                NOTIFY_STATUS_BALANCE -> {
+                    statusBalanceNotificationEnabled = true
+                    appSettings.statusBalanceNotificationEnabled = true
+                }
+            }
+        }
+    }
 
     fun requestBalance(key: String) {
         if (isRefreshing) return
@@ -87,9 +198,14 @@ fun DeepSeekApp() {
             isRefreshing = true
             errorMessage = null
             try {
-                balance = DeepSeekBalanceApi.getBalance(key)
-                lastUpdated = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                val snapshot = DeepSeekBalanceApi.getBalance(key)
+                balance = snapshot
+                isConnected = true
+                lastUpdated = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+                if (statusBalanceNotificationEnabled) BalanceNotificationManager.showBalance(context, snapshot)
+                if (balanceReminderEnabled && !snapshot.isAvailable) BalanceNotificationManager.showUnavailable(context)
             } catch (exception: Exception) {
+                isConnected = false
                 errorMessage = exception.message ?: "查询失败，请检查网络后重试。"
             } finally {
                 isRefreshing = false
@@ -101,6 +217,7 @@ fun DeepSeekApp() {
         val key = apiKey
         if (key.isNullOrBlank()) {
             balance = null
+            isConnected = false
             lastUpdated = null
             errorMessage = null
         } else {
@@ -108,16 +225,19 @@ fun DeepSeekApp() {
         }
     }
 
+    LaunchedEffect(refreshIntervalMinutes) {
+        appSettings.refreshIntervalMinutes = refreshIntervalMinutes
+        AutoRefreshScheduler.apply(context, refreshIntervalMinutes)
+    }
+
     val headerTitle = when (selectedTab) {
         TAB_BALANCE -> "余额明细"
-        TAB_KEY -> "API Key"
         TAB_SETTINGS -> "设置"
         else -> "仪表盘"
     }
     val headerSubtitle = when (selectedTab) {
-        TAB_BALANCE -> "查看各币种的余额构成"
-        TAB_KEY -> "安全管理 DeepSeek API 密钥"
-        TAB_SETTINGS -> "接口、刷新与隐私说明"
+        TAB_BALANCE -> "查看各币种的账户余额"
+        TAB_SETTINGS -> "提醒、刷新、外观与连接设置"
         else -> "DeepSeek API 账户概览"
     }
 
@@ -164,7 +284,7 @@ fun DeepSeekApp() {
                         .clickable {
                             val key = apiKey
                             if (key.isNullOrBlank()) {
-                                selectedTab = TAB_KEY
+                                selectedTab = TAB_SETTINGS
                             } else {
                                 requestBalance(key)
                             }
@@ -177,55 +297,51 @@ fun DeepSeekApp() {
 
             when (selectedTab) {
                 TAB_BALANCE -> BalanceDetailsScreen(balance, apiKey != null, lastUpdated)
-                TAB_KEY -> ApiKeyScreen(
+                TAB_SETTINGS -> SettingsScreen(
                     currentApiKey = apiKey,
                     keyInput = keyInput,
-                    error = keySaveError,
-                    onInputChange = {
-                        keyInput = it
-                        keySaveError = null
-                    },
-                    onSave = {
+                    onKeyInputChange = { keyInput = it; settingsMessage = null },
+                    onSaveKey = {
                         val value = keyInput.trim()
                         if (value.length < 8) {
-                            keySaveError = "请填写完整的 DeepSeek API Key。"
-                        } else {
-                            try {
-                                keyStore.save(value)
-                                apiKey = value
-                                keyInput = ""
-                                keySaveError = null
-                                selectedTab = TAB_OVERVIEW
-                            } catch (_: Exception) {
-                                keySaveError = "无法安全保存密钥，请检查设备安全存储状态。"
-                            }
-                        }
+                            settingsMessage = "请填写完整的 DeepSeek API Key。"
+                        } else runCatching { keyStore.save(value) }
+                            .onSuccess { apiKey = value; keyInput = ""; settingsMessage = "API Key 已加密保存在本机。" }
+                            .onFailure { settingsMessage = "无法安全保存密钥，请检查设备安全存储状态。" }
                     },
-                    onRemove = {
-                        try {
-                            keyStore.clear()
-                            apiKey = null
-                            keyInput = ""
-                            keySaveError = null
-                            balance = null
-                            selectedTab = TAB_OVERVIEW
-                        } catch (_: Exception) {
-                            keySaveError = "无法清除本地密钥，请稍后重试。"
-                        }
-                    }
+                    onTestConnection = {
+                        val candidate = keyInput.trim().ifBlank { apiKey.orEmpty() }
+                        if (candidate.isBlank()) settingsMessage = "请先输入 API Key。"
+                        else requestBalance(candidate)
+                    },
+                    onRemoveKey = {
+                        runCatching { keyStore.clear() }
+                            .onSuccess { apiKey = null; keyInput = ""; balance = null; isConnected = false; settingsMessage = "已移除本机保存的 API Key。" }
+                            .onFailure { settingsMessage = "无法清除本地密钥，请稍后重试。" }
+                    },
+                    appearanceMode = appearanceMode,
+                    onAppearanceChange = { appearanceMode = it; appSettings.appearanceMode = it },
+                    refreshIntervalMinutes = refreshIntervalMinutes,
+                    onRefreshIntervalChange = { refreshIntervalMinutes = it },
+                    balanceReminderEnabled = balanceReminderEnabled,
+                    onBalanceReminderChange = { updateNotificationOption(NOTIFY_BALANCE_REMINDER, it) },
+                    statusBalanceNotificationEnabled = statusBalanceNotificationEnabled,
+                    onStatusBalanceNotificationChange = { updateNotificationOption(NOTIFY_STATUS_BALANCE, it) },
+                    isTestingConnection = isRefreshing,
+                    connectionMessage = settingsMessage
                 )
-                TAB_SETTINGS -> SettingsScreen()
                 else -> OverviewScreen(
                     balance = balance,
                     hasApiKey = !apiKey.isNullOrBlank(),
                     isRefreshing = isRefreshing,
+                    isConnected = isConnected,
                     lastUpdated = lastUpdated,
                     error = errorMessage,
                     onRefresh = {
                         val key = apiKey
-                        if (key.isNullOrBlank()) selectedTab = TAB_KEY else requestBalance(key)
+                        if (key.isNullOrBlank()) selectedTab = TAB_SETTINGS else requestBalance(key)
                     },
-                    onManageKey = { selectedTab = TAB_KEY }
+                    onManageKey = { selectedTab = TAB_SETTINGS }
                 )
             }
 
@@ -249,6 +365,7 @@ private fun OverviewScreen(
     balance: BalanceSnapshot?,
     hasApiKey: Boolean,
     isRefreshing: Boolean,
+    isConnected: Boolean,
     lastUpdated: String?,
     error: String?,
     onRefresh: () -> Unit,
@@ -260,6 +377,7 @@ private fun OverviewScreen(
             balance = balance,
             hasApiKey = hasApiKey,
             isRefreshing = isRefreshing,
+            isConnected = isConnected,
             lastUpdated = lastUpdated,
             onRefresh = onRefresh
         )
@@ -308,18 +426,13 @@ private fun BalanceHeroCard(
 ) {
     val first = balance?.balances?.firstOrNull()
     val statusText = when {
-        !hasApiKey -> "未连接"
-        isRefreshing && balance == null -> "查询中"
-        balance?.isAvailable == true -> "账户可用"
-        balance != null -> "余额不可用"
-        else -> "待查询"
+        isRefreshing && !isConnected -> "连接中"
+        isConnected -> "已连接"
+        hasApiKey -> "连接失败"
+        else -> "未连接"
     }
-    val statusBackground = when {
-        balance?.isAvailable == true -> Palette.greenBackground
-        !hasApiKey -> Palette.softCard
-        else -> Color(0xFFFFEDDA)
-    }
-    val statusColor = if (balance?.isAvailable == true) Palette.greenText else Palette.secondary
+    val statusBackground = if (isConnected) Palette.greenBackground else Palette.softCard
+    val statusColor = if (isConnected) Palette.greenText else Palette.secondary
 
     Column(
         Modifier
@@ -333,25 +446,23 @@ private fun BalanceHeroCard(
             .padding(22.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("◉", fontSize = 17.sp, color = Palette.secondary)
-            Text(
-                "  账户状态",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Palette.text
-            )
-            Spacer(Modifier.width(10.dp))
-            Box(
-                Modifier
-                    .clip(CircleShape)
-                    .background(statusBackground)
-                    .padding(horizontal = 12.dp, vertical = 7.dp)
-            ) {
-                Text(statusText, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Column(Modifier.weight(1f)) {
+                Text("账户状态", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Palette.text)
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier.clip(CircleShape).background(statusBackground).padding(horizontal = 12.dp, vertical = 7.dp)
+                ) {
+                    Text(statusText, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (balance?.isAvailable == true) "账户余额可用" else if (isConnected) "账户余额暂不可用" else "连接成功后鲸鱼娘会动起来",
+                    color = Palette.secondary, fontSize = 11.sp, lineHeight = 15.sp
+                )
             }
+            WhaleStatusBlob(connected = isConnected, modifier = Modifier.size(154.dp))
         }
-
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("总余额", color = Palette.secondary, fontSize = 13.sp)
@@ -368,20 +479,13 @@ private fun BalanceHeroCard(
                     fontSize = 12.sp
                 )
             }
-            Box(
-                Modifier
-                    .size(68.dp)
-                    .shadow(14.dp, CircleShape)
-                    .background(Palette.blue, CircleShape)
-                    .clickable(onClick = onRefresh),
-                contentAlignment = Alignment.Center
+            androidx.compose.material.Button(
+                onClick = onRefresh,
+                enabled = !isRefreshing,
+                shape = RoundedCornerShape(16.dp),
+                colors = androidx.compose.material.ButtonDefaults.buttonColors(backgroundColor = Palette.blue, contentColor = Color.White)
             ) {
-                Text(
-                    if (isRefreshing) "…" else "↻",
-                    color = Color.White,
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text(if (isRefreshing) "刷新中…" else "手动刷新", fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -585,34 +689,241 @@ private fun ApiKeyScreen(
 }
 
 @Composable
-private fun SettingsScreen() {
+private fun SettingsScreen(
+    currentApiKey: String?,
+    keyInput: String,
+    onKeyInputChange: (String) -> Unit,
+    onSaveKey: () -> Unit,
+    onTestConnection: () -> Unit,
+    onRemoveKey: () -> Unit,
+    appearanceMode: String,
+    onAppearanceChange: (String) -> Unit,
+    refreshIntervalMinutes: Int,
+    onRefreshIntervalChange: (Int) -> Unit,
+    balanceReminderEnabled: Boolean,
+    onBalanceReminderChange: (Boolean) -> Unit,
+    statusBalanceNotificationEnabled: Boolean,
+    onStatusBalanceNotificationChange: (Boolean) -> Unit,
+    isTestingConnection: Boolean,
+    connectionMessage: String?
+) {
+    var refreshMenuExpanded by remember { mutableStateOf(false) }
+    val refreshOptions = listOf(0 to "手动刷新", 15 to "每 15 分钟", 30 to "每 30 分钟", 60 to "每 1 小时", 180 to "每 3 小时", 360 to "每 6 小时", 720 to "每 12 小时", 1440 to "每 24 小时")
+    val selectedRefreshLabel = refreshOptions.firstOrNull { it.first == refreshIntervalMinutes }?.second ?: "手动刷新"
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        SettingsInfoCard(
-            title = "查询接口",
-            value = "GET https://api.deepseek.com/user/balance",
-            detail = "使用 Authorization: Bearer API Key 进行鉴权。"
-        )
-        SettingsInfoCard(
-            title = "自动查询",
-            value = "启动应用时查询一次",
-            detail = "进入应用后会读取本机密钥并请求最新余额；首页刷新按钮可手动重新查询。"
-        )
-        SettingsInfoCard(
-            title = "数据范围",
-            value = "总余额 · 赠送余额 · 充值余额",
-            detail = "DeepSeek 余额接口不返回 Token 用量、消费流水或历史账单，本应用不会展示推算或虚构的用量数据。"
-        )
-        SettingsInfoCard(
-            title = "隐私与网络",
-            value = "仅连接 DeepSeek 官方 API",
-            detail = "API Key 使用 Android Keystore 加密保存在设备本地，网络请求使用 HTTPS。"
-        )
-        Text(
-            "DeepSeek 余额查询 · Android · 1.0.0",
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            color = Palette.secondary,
-            fontSize = 12.sp
-        )
+        SectionHeading("余额提醒", "控制账户状态通知")
+        SettingsToggleRow("余额不可用时提醒", "当 DeepSeek 返回 is_available=false 时发送提醒。", balanceReminderEnabled, onBalanceReminderChange)
+        SettingsToggleRow("状态栏余额通知", "每次成功刷新后，在 Android 通知栏显示当前余额。", statusBalanceNotificationEnabled, onStatusBalanceNotificationChange)
+
+        SectionHeading("自动刷新", "设置后台查询频率")
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.card).padding(18.dp)) {
+            Text("后台刷新间隔", fontSize = 14.sp, color = Palette.text, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            Box {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.softCard)
+                        .clickable { refreshMenuExpanded = true }.padding(horizontal = 14.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(selectedRefreshLabel, color = Palette.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Text("⌄", color = Palette.secondary, fontSize = 18.sp)
+                }
+                DropdownMenu(expanded = refreshMenuExpanded, onDismissRequest = { refreshMenuExpanded = false }) {
+                    refreshOptions.forEach { option ->
+                        DropdownMenuItem(onClick = { onRefreshIntervalChange(option.first); refreshMenuExpanded = false }) {
+                            Text(option.second, color = Palette.text)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (refreshIntervalMinutes == 0) "后台自动刷新已关闭，请在概览页使用手动刷新。"
+                else "后台刷新已开启。Android 最短周期为 15 分钟，实际执行时间由系统调度。",
+                color = Palette.secondary, fontSize = 11.sp, lineHeight = 16.sp
+            )
+        }
+
+        SectionHeading("外观", "默认跟随系统")
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.card).padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            AppearanceChoice("浅色", appearanceMode == AppSettings.APPEARANCE_LIGHT, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_LIGHT) }
+            AppearanceChoice("深色", appearanceMode == AppSettings.APPEARANCE_DARK, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_DARK) }
+            AppearanceChoice("跟随系统", appearanceMode == AppSettings.APPEARANCE_SYSTEM, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_SYSTEM) }
+        }
+
+        SectionHeading("API Key 设置", "密钥保存在当前设备")
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.card).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(if (currentApiKey.isNullOrBlank()) "尚未配置 API Key" else "当前密钥：" + maskKey(currentApiKey), color = Palette.secondary, fontSize = 12.sp)
+            BasicTextField(
+                value = keyInput,
+                onValueChange = onKeyInputChange,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.softCard).padding(horizontal = 14.dp, vertical = 16.dp),
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(color = Palette.text, fontSize = 14.sp),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(Palette.blue),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                visualTransformation = PasswordVisualTransformation(),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (keyInput.isEmpty()) Text("粘贴你的 DeepSeek API Key", color = Palette.secondary, fontSize = 14.sp)
+                        innerTextField()
+                    }
+                }
+            )
+            PrimaryAction("安全保存 API Key", onSaveKey)
+            SecondaryAction(if (isTestingConnection) "正在测试连接…" else "测试连接", onTestConnection)
+            if (!currentApiKey.isNullOrBlank()) SecondaryAction("移除本机密钥", onRemoveKey)
+            Text("密钥使用 Android Keystore 保护的 AES-GCM 加密后保存在本机。测试连接会真实请求 DeepSeek 余额接口。",
+                color = Palette.secondary, fontSize = 11.sp, lineHeight = 16.sp)
+            if (connectionMessage != null) {
+                Text(connectionMessage, color = if (connectionMessage.startsWith("连接成功")) Palette.greenText else Palette.secondary,
+                    fontSize = 12.sp, lineHeight = 17.sp)
+            }
+        }
+
+        InfoCard("接口说明", "本应用展示 DeepSeek 官方余额接口返回的账户可用状态、总余额、赠送余额和充值余额。接口不提供 Token 消耗明细或账单历史。")
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(title: String, detail: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.card)
+            .clickable { onCheckedChange(!checked) }.padding(horizontal = 17.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, color = Palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(detail, color = Palette.secondary, fontSize = 11.sp, lineHeight = 16.sp)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = Palette.blue))
+    }
+}
+
+@Composable
+private fun AppearanceChoice(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(modifier.clip(RoundedCornerShape(13.dp))
+        .background(if (selected) Palette.blue.copy(alpha = 0.13f) else Palette.softCard)
+        .clickable(onClick = onClick).padding(horizontal = 5.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, color = if (selected) Palette.blue else Palette.secondary, fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
+    }
+}
+
+@Composable
+private fun WhaleStatusBlob(connected: Boolean, modifier: Modifier = Modifier) {
+    val floatOffset = if (connected) {
+        val transition = rememberInfiniteTransition(label = "whale-float")
+        val offset by transition.animateFloat(-3.5f, 3.5f,
+            infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "whale-float-offset")
+        offset
+    } else 0f
+    val tilt = if (connected) {
+        val transition = rememberInfiniteTransition(label = "whale-tilt")
+        val angle by transition.animateFloat(-1.2f, 1.2f,
+            infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "whale-tilt-angle")
+        angle
+    } else 0f
+
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val radius = size.minDimension * 0.445f
+            val blob = Path()
+            val steps = 144
+            for (i in 0..steps) {
+                val a = i.toDouble() / steps.toDouble() * Math.PI * 2.0
+                val wave = 1f + 0.065f * sin(a * 8.0).toFloat() + 0.018f * sin(a * 13.0 + 0.6).toFloat()
+                val r = radius * wave
+                val x = cx + cos(a).toFloat() * r
+                val y = cy + sin(a).toFloat() * r
+                if (i == 0) blob.moveTo(x, y) else blob.lineTo(x, y)
+            }
+            blob.close()
+            drawPath(blob, Brush.linearGradient(
+                listOf(Color(0xFF369BFF), Color(0xFF087FF5), Color(0xFF2689F4)),
+                start = Offset(size.width * 0.15f, 0f), end = Offset(size.width * 0.85f, size.height)
+            ), style = Fill)
+            drawPath(blob, Color.White.copy(alpha = 0.34f), style = Stroke(1.5.dp.toPx()))
+        }
+        WhaleGirlCanvas(Modifier.fillMaxSize(0.76f).graphicsLayer {
+            translationY = floatOffset.dp.toPx()
+            rotationZ = tilt
+        })
+        if (!connected) {
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp)
+                .clip(CircleShape).background(Color.White.copy(alpha = 0.82f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                Text("待连接", color = Color(0xFF41658C), fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WhaleGirlCanvas(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val hair = Color(0xFF123C8E)
+        val skin = Color(0xFFFFD9CF)
+        val tail = Path().apply {
+            moveTo(w*.48f,h*.69f); cubicTo(w*.39f,h*.78f,w*.31f,h*.82f,w*.25f,h*.92f)
+            cubicTo(w*.37f,h*.91f,w*.45f,h*.88f,w*.50f,h*.82f)
+            cubicTo(w*.56f,h*.88f,w*.66f,h*.91f,w*.78f,h*.92f)
+            cubicTo(w*.70f,h*.80f,w*.60f,h*.75f,w*.54f,h*.69f); close()
+        }
+        drawPath(tail, Brush.verticalGradient(listOf(Color(0xFF7BE3FF),Color(0xFF087FF5))))
+        drawOval(Brush.verticalGradient(listOf(Color.White,Color(0xFFB9E8FF))),Offset(w*.35f,h*.52f),Size(w*.31f,h*.29f))
+        drawOval(hair,Offset(w*.18f,h*.06f),Size(w*.64f,h*.58f))
+        drawOval(skin,Offset(w*.28f,h*.19f),Size(w*.44f,h*.43f))
+        val left = Path().apply {
+            moveTo(w*.30f,h*.23f); cubicTo(w*.12f,h*.35f,w*.18f,h*.62f,w*.34f,h*.66f)
+            cubicTo(w*.29f,h*.49f,w*.34f,h*.36f,w*.38f,h*.27f); close()
+        }
+        val right = Path().apply {
+            moveTo(w*.70f,h*.22f); cubicTo(w*.88f,h*.34f,w*.82f,h*.61f,w*.66f,h*.67f)
+            cubicTo(w*.72f,h*.48f,w*.68f,h*.34f,w*.63f,h*.27f); close()
+        }
+        drawPath(left,Color(0xFF238DE6)); drawPath(right,Color(0xFF238DE6))
+        val bangs = Path().apply {
+            moveTo(w*.23f,h*.31f); cubicTo(w*.22f,h*.05f,w*.65f,h*.03f,w*.76f,h*.28f)
+            cubicTo(w*.64f,h*.23f,w*.58f,h*.39f,w*.51f,h*.34f)
+            cubicTo(w*.46f,h*.43f,w*.40f,h*.36f,w*.37f,h*.30f)
+            cubicTo(w*.31f,h*.38f,w*.28f,h*.35f,w*.23f,h*.31f); close()
+        }
+        drawPath(bangs,hair)
+        drawPath(Path().apply { moveTo(w*.32f,h*.17f); cubicTo(w*.43f,h*.08f,w*.60f,h*.10f,w*.68f,h*.19f) },
+            Color(0xFF77CFFF),style=Stroke(w*.025f))
+        val eye=Color(0xFF09275F)
+        drawOval(eye,Offset(w*.36f,h*.39f),Size(w*.075f,h*.105f))
+        drawOval(eye,Offset(w*.57f,h*.39f),Size(w*.075f,h*.105f))
+        drawCircle(Color.White,w*.017f,Offset(w*.395f,h*.415f))
+        drawCircle(Color.White,w*.017f,Offset(w*.605f,h*.415f))
+        drawCircle(Color(0xFFFFA7AB).copy(alpha=.65f),w*.045f,Offset(w*.32f,h*.51f))
+        drawCircle(Color(0xFFFFA7AB).copy(alpha=.65f),w*.045f,Offset(w*.68f,h*.51f))
+        drawOval(Color(0xFFB94D67),Offset(w*.46f,h*.53f),Size(w*.08f,h*.045f))
+        val collar=Path().apply { moveTo(w*.38f,h*.64f); lineTo(w*.50f,h*.73f); lineTo(w*.62f,h*.64f); lineTo(w*.57f,h*.79f); lineTo(w*.43f,h*.79f); close() }
+        drawPath(collar,Color.White)
+        val bowLeft=Path().apply { moveTo(w*.49f,h*.72f); lineTo(w*.37f,h*.67f); lineTo(w*.40f,h*.79f); close() }
+        val bowRight=Path().apply { moveTo(w*.51f,h*.72f); lineTo(w*.63f,h*.67f); lineTo(w*.60f,h*.79f); close() }
+        drawPath(bowLeft,Color(0xFF258EF0)); drawPath(bowRight,Color(0xFF55C5FF))
+        drawCircle(Color(0xFF087FF5),w*.06f,Offset(w*.50f,h*.72f))
+        val fin=Path().apply {
+            moveTo(w*.62f,h*.20f); cubicTo(w*.68f,h*.08f,w*.79f,h*.10f,w*.82f,h*.18f)
+            cubicTo(w*.74f,h*.18f,w*.70f,h*.27f,w*.62f,h*.20f); close()
+        }
+        drawPath(fin,Color(0xFFB7EEFF))
+        drawCircle(Color.White,w*.018f,Offset(w*.69f,h*.19f))
+        drawCircle(Color.White.copy(alpha=.78f),w*.025f,Offset(w*.17f,h*.31f))
+        drawCircle(Color(0xFFB8EFFF),w*.035f,Offset(w*.82f,h*.48f))
     }
 }
 

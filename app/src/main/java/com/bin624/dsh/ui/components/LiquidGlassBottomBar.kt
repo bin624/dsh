@@ -1,6 +1,5 @@
 package com.bin624.dsh.ui.components
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -64,7 +63,6 @@ private data class NavigationItem(
 private enum class NavigationGlyph {
     HOME,
     WALLET,
-    KEY,
     SETTINGS
 }
 
@@ -75,7 +73,7 @@ fun LiquidGlassBottomBar(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isLightTheme = !isSystemInDarkTheme()
+    val isLightTheme = !com.bin624.dsh.ui.Palette.isDarkTheme
     val accentColor = if (isLightTheme) Color(0xFF087FF5) else Color(0xFF0091FF)
     // A low-opacity cool tint lets the sampled page remain visible through the
     // vessel. The bar is glass, not an opaque white card.
@@ -88,7 +86,6 @@ fun LiquidGlassBottomBar(
     val items = listOf(
         NavigationItem("概览", NavigationGlyph.HOME),
         NavigationItem("明细", NavigationGlyph.WALLET),
-        NavigationItem("密钥", NavigationGlyph.KEY),
         NavigationItem("设置", NavigationGlyph.SETTINGS)
     )
     val tabsBackdrop = rememberLayerBackdrop()
@@ -176,11 +173,11 @@ fun LiquidGlassBottomBar(
                 ) {
                     NavigationIcon(
                         glyph = item.glyph,
-                        tint = if (selected) accentColor else Color(0xFF454955)
+                        tint = if (selected) accentColor else if (isLightTheme) Color(0xFF454955) else Color(0xFFD8E2F0)
                     )
                     androidx.compose.material.Text(
                         text = item.title,
-                        color = if (selected) accentColor else Color(0xFF454955),
+                        color = if (selected) accentColor else if (isLightTheme) Color(0xFF454955) else Color(0xFFD8E2F0),
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
@@ -363,26 +360,6 @@ private fun NavigationIcon(
                     tint,
                     radius = w * 0.055f,
                     center = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.61f)
-                )
-            }
-            NavigationGlyph.KEY -> {
-                drawCircle(
-                    tint,
-                    radius = w * 0.23f,
-                    center = androidx.compose.ui.geometry.Offset(w * 0.33f, h * 0.37f),
-                    style = stroke
-                )
-                drawLine(
-                    tint,
-                    androidx.compose.ui.geometry.Offset(w * 0.49f, h * 0.53f),
-                    androidx.compose.ui.geometry.Offset(w * 0.86f, h * 0.90f),
-                    strokeWidth = stroke.width
-                )
-                drawLine(
-                    tint,
-                    androidx.compose.ui.geometry.Offset(w * 0.68f, h * 0.72f),
-                    androidx.compose.ui.geometry.Offset(w * 0.81f, h * 0.59f),
-                    strokeWidth = stroke.width
                 )
             }
             NavigationGlyph.SETTINGS -> {
