@@ -1,43 +1,59 @@
 # 液态玻璃底部导航实现说明
 
-## 1. 参考项目与边界
+## 1. 视频目标与交互拆解
 
-实现参考 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 及 [Backdrop 官方文档](https://kyant.gitbook.io/backdrop)，使用 Maven Central 依赖：
+参考用户提供的导航操作视频，底栏拆分为两个独立视觉层：
+
+1. 稳定的半透明圆角胶囊容器：始终固定在屏幕底部，负责背景采样、柔化、通透感、高光和外部投影。
+2. 可移动的选中液态透镜：宽度对应一个 Tab，位于图标与文字之上，能被手指横向拖动；拖动时拉伸、折射相邻图标和文字，松手后吸附到最近 Tab 并回弹。
+
+重点不是把选中项涂成蓝色圆角矩形，而是让一块真正采样底栏内容的玻璃透镜在栏目间移动。蓝色只负责当前选中图标和文字的状态提示。
+
+## 2. 参考项目与依赖
+
+实现参考 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 及 [Backdrop 官方文档](https://kyant.gitbook.io/backdrop)，依赖：
 
 ```kotlin
 implementation("io.github.kyant0:backdrop:2.0.1")
+implementation("io.github.kyant0:shapes:1.2.1")
 ```
 
-Backdrop 是背景采样与图形效果库，并不是完整的 UI 组件库。上游 README 明确说明不包含高阶 UI 组件，导航栏需要由应用开发者自行组合。因此本项目实现自己的 `LiquidGlassBottomBar`，使用公开 Backdrop API，不把示例 App 的导航业务组件作为库 API 依赖。
+Backdrop 是背景采样和图形效果库，并不是完整 UI 组件库。上游 README 明确说明不包含高阶组件，因此本项目自行组合 `LiquidGlassBottomBar`。
 
-## 2. 背景采样机制
+## 3. 双层背景采样机制
 
-页面内容使用 `rememberLayerBackdrop()` 创建采样图层，并通过 `layerBackdrop(backdrop)` 记录当前页面绘制内容。悬浮导航栏位于内容上层，通过同一个 backdrop 采样其后方背景。
+页面本身由页面级 `LayerBackdrop` 记录；导航栏图标和文字另由 `tabBackdrop` 记录。选中液态透镜使用 `rememberCombinedBackdrop(pageBackdrop, tabBackdrop)`，同时采样页面和导航内容。
 
 ```text
-页面内容
-  └─ layerBackdrop(backdrop) 记录背景图层
-悬浮导航栏
-  ├─ drawBackdrop(backdrop) 绘制玻璃容器
-  └─ drawBackdrop(backdrop) 绘制选中态玻璃胶囊
+页面内容 ── layerBackdrop(pageBackdrop) ─────────┐
+                                                 ├─ rememberCombinedBackdrop
+导航图标/文字 ── layerBackdrop(tabBackdrop) ─────┘
+                                                 ↓
+                                  移动的 drawBackdrop 液态透镜
 ```
 
-这使玻璃层能对真实页面内容进行采样，而不是仅仅绘制一块固定半透明白色背景。
+这一步非常关键：如果选中层只采样页面背景，它只会像一块磨砂玻璃盖在导航图标上；结合导航自身的图层后，透镜才会扭曲、放大和折射相邻图标与文字，形成视频里那种移动玻璃感。
 
-## 3. 玻璃容器效果
+## 4. 操作与动画
 
-导航容器使用 Capsule 形状，组合以下效果：
+- **点击切换**：点击任一 Tab，选中透镜使用弹簧动画滑到目标栏目，同时短暂提高按压强度。
+- **横向拖动**：手势从导航栏区域开始，透镜中心持续映射到手指的横向位置，允许跨多个 Tab 拖动。
+- **松手吸附**：拖动结束时将当前连续位置取整到最近 Tab，并更新选中状态。
+- **拉伸与回弹**：按压进度控制透镜的纵向鼓起；拖动速度控制横向拉伸和纵向压缩；松手后速度归零、透镜回到标准尺寸。
+- **折射反馈**：移动透镜叠加 `lens` 与 `chromaticAberration`，同时使用 Highlight、Shadow、InnerShadow；底栏容器本身保持稳定，不跟随透镜左右移动。
 
-- `vibrancy()`：增强采样背景的通透感。
-- `blur(12.dp)`：柔化背景细节。
-- `lens(24.dp, 28.dp)`：生成折射与透镜式背景形变。
-- `Highlight.Default`：边缘高光。
-- `Shadow` 与 `InnerShadow`：外部投影及内部边缘阴影。
-- 半透明暖白表面和白色细描边：匹配参考图的浅色玻璃质感。
+## 5. 玻璃效果组成
 
-选中项使用独立的 Capsule 玻璃层，增加 lens 折射、高光和弹簧位移动画。导航项仍保留独立点击和 TalkBack Tab 语义。
+容器与透镜分别组合 Backdrop 的图形效果：
 
-## 4. 与设计截图配色对齐
+- `vibrancy()`：提升背景内容的通透感。
+- `blur(10.dp)`：柔化被采样的背景。
+- `lens(..., chromaticAberration = true)`：产生透镜折射与轻微色散。
+- `Highlight.Default`：高光边缘。
+- `Shadow` / `InnerShadow`：外部投影和内部边缘阴影。
+- 极低不透明度的白色表面：避免把选中层做成纯色实心胶囊。
+
+## 6. 配色
 
 主题色集中在 `ui/Palette.kt`：
 
@@ -48,17 +64,23 @@ Backdrop 是背景采样与图形效果库，并不是完整的 UI 组件库。�
 | 次级信息块 | `#F0EEF2` |
 | 主文字 | `#171923` |
 | 蓝色强调 | `#087FF5` |
-| 淡蓝选中玻璃 | `#E6EDFC` |
+| 淡蓝玻璃参考色 | `#E6EDFC` |
 | 绿色状态 | `#DCEFD5` |
 
-布局使用浅灰紫底色、白色大圆角卡片、浅灰信息块、蓝色操作强调和底部悬浮胶囊导航。
+选中项文字和图标使用蓝色；玻璃透镜表面维持近透明暖白色，让下方内容能通过折射可见。
 
-## 5. 兼容性与验收
+## 7. 兼容性与验收
 
 Backdrop 的实际折射、模糊表现依赖设备 Compose 图形栈对 RenderEffect / RuntimeShader 的支持。能力受限的设备可能以半透明表面、高光和描边作为降级视觉。
 
-验收时应至少在 Android 12+ 真机检查：背景采样是否正确、选中项是否跟随导航切换、滚动时底栏是否保持悬浮、手势及系统导航栏是否有遮挡，以及低端设备上的帧率。
+真机验收至少应检查：
+- 点击四个栏目时，选中透镜是否平滑移动；
+- 从当前透镜上按住左右拖动时，透镜是否连续跟手，而不是逐项跳动；
+- 拖过图标时，图标和文字是否在透镜内部产生折射/色散；
+- 松手后是否吸附到最近栏目，并自然回弹；
+- 快速拖动后容器是否稳定、透镜是否不会抖动或跳位；
+- 滚动页面时导航栏是否保持悬浮，且不遮挡系统手势区。
 
-## 6. 许可证
+## 8. 许可证
 
-Backdrop 2.0.1 的发布元数据标注 Apache License 2.0。本项目通过 Maven Central 引入依赖，没有复制其示例项目源码。
+Backdrop 2.0.1 的发布元数据标注 Apache License 2.0。本项目通过 Maven Central 引入依赖，并基于公开 API 自行实现导航组件。
