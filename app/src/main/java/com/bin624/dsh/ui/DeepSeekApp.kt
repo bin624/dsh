@@ -131,8 +131,8 @@ fun DeepSeekApp() {
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .background(Palette.background)
                 .layerBackdrop(pageBackdrop)
+                .background(Palette.background)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
