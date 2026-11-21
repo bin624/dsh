@@ -117,6 +117,7 @@ fun DeepSeekApp() {
     var appearanceMode by rememberSaveable { mutableStateOf(appSettings.appearanceMode) }
     var refreshIntervalMinutes by rememberSaveable { mutableIntStateOf(appSettings.refreshIntervalMinutes) }
     var balanceReminderEnabled by rememberSaveable { mutableStateOf(appSettings.balanceReminderEnabled) }
+    var balanceThresholdText by rememberSaveable { mutableStateOf(appSettings.balanceReminderThreshold.toString()) }
     var statusBalanceNotificationEnabled by rememberSaveable { mutableStateOf(appSettings.statusBalanceNotificationEnabled) }
     var settingsMessage by remember { mutableStateOf<String?>(null) }
     var pendingNotificationOption by remember { mutableIntStateOf(0) }
@@ -204,7 +205,7 @@ fun DeepSeekApp() {
                 isConnected = true
                 lastUpdated = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                 if (statusBalanceNotificationEnabled) BalanceNotificationManager.showBalance(context, snapshot)
-                if (balanceReminderEnabled && !snapshot.isAvailable) BalanceNotificationManager.showUnavailable(context)
+                if (balanceReminderEnabled) BalanceNotificationManager.showLowBalanceIfNeeded(context, snapshot, appSettings.balanceReminderThreshold)
                 if (isConnectionTest) settingsMessage = "连接成功，DeepSeek 余额接口已返回数据。"
             } catch (exception: Exception) {
                 isConnected = false
@@ -328,6 +329,11 @@ fun DeepSeekApp() {
                     onRefreshIntervalChange = { refreshIntervalMinutes = it },
                     balanceReminderEnabled = balanceReminderEnabled,
                     onBalanceReminderChange = { updateNotificationOption(NOTIFY_BALANCE_REMINDER, it) },
+                    balanceThresholdText = balanceThresholdText,
+                    onBalanceThresholdChange = { value ->
+                        balanceThresholdText = value
+                        value.toBigDecimalOrNull()?.takeIf { it >= BigDecimal.ZERO }?.let { appSettings.balanceReminderThreshold = it.toDouble() }
+                    },
                     statusBalanceNotificationEnabled = statusBalanceNotificationEnabled,
                     onStatusBalanceNotificationChange = { updateNotificationOption(NOTIFY_STATUS_BALANCE, it) },
                     isTestingConnection = isRefreshing,
@@ -710,6 +716,8 @@ private fun SettingsScreen(
     onRefreshIntervalChange: (Int) -> Unit,
     balanceReminderEnabled: Boolean,
     onBalanceReminderChange: (Boolean) -> Unit,
+    balanceThresholdText: String,
+    onBalanceThresholdChange: (String) -> Unit,
     statusBalanceNotificationEnabled: Boolean,
     onStatusBalanceNotificationChange: (Boolean) -> Unit,
     isTestingConnection: Boolean,
@@ -719,49 +727,6 @@ private fun SettingsScreen(
     val refreshOptions = listOf(0 to "手动刷新", 15 to "每 15 分钟", 30 to "每 30 分钟", 60 to "每 1 小时", 180 to "每 3 小时", 360 to "每 6 小时", 720 to "每 12 小时", 1440 to "每 24 小时")
     val selectedRefreshLabel = refreshOptions.firstOrNull { it.first == refreshIntervalMinutes }?.second ?: "手动刷新"
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        SectionHeading("余额提醒", "控制账户状态通知")
-        SettingsToggleRow("余额不可用时提醒", "当 DeepSeek 返回 is_available=false 时发送提醒。", balanceReminderEnabled, onBalanceReminderChange)
-        SettingsToggleRow("状态栏余额通知", "每次成功刷新后，在 Android 通知栏显示当前余额。", statusBalanceNotificationEnabled, onStatusBalanceNotificationChange)
-
-        SectionHeading("自动刷新", "设置后台查询频率")
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.card).padding(18.dp)) {
-            Text("后台刷新间隔", fontSize = 14.sp, color = Palette.text, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
-            Box {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.softCard)
-                        .clickable { refreshMenuExpanded = true }.padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(selectedRefreshLabel, color = Palette.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Text("⌄", color = Palette.secondary, fontSize = 18.sp)
-                }
-                DropdownMenu(expanded = refreshMenuExpanded, onDismissRequest = { refreshMenuExpanded = false }) {
-                    refreshOptions.forEach { option ->
-                        DropdownMenuItem(onClick = { onRefreshIntervalChange(option.first); refreshMenuExpanded = false }) {
-                            Text(option.second, color = Palette.text)
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                if (refreshIntervalMinutes == 0) "后台自动刷新已关闭，请在概览页使用手动刷新。"
-                else "后台刷新已开启。Android 最短周期为 15 分钟，实际执行时间由系统调度。",
-                color = Palette.secondary, fontSize = 11.sp, lineHeight = 16.sp
-            )
-        }
-
-        SectionHeading("外观", "默认跟随系统")
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Palette.card).padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            AppearanceChoice("浅色", appearanceMode == AppSettings.APPEARANCE_LIGHT, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_LIGHT) }
-            AppearanceChoice("深色", appearanceMode == AppSettings.APPEARANCE_DARK, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_DARK) }
-            AppearanceChoice("跟随系统", appearanceMode == AppSettings.APPEARANCE_SYSTEM, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_SYSTEM) }
-        }
-
         SectionHeading("API Key 设置", "密钥保存在当前设备")
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.card).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(if (currentApiKey.isNullOrBlank()) "尚未配置 API Key" else "当前密钥：" + maskKey(currentApiKey), color = Palette.secondary, fontSize = 12.sp)
@@ -782,16 +747,90 @@ private fun SettingsScreen(
                 }
             )
             PrimaryAction("安全保存 API Key", onSaveKey)
-            SecondaryAction(if (isTestingConnection) "正在测试连接…" else "测试连接", onTestConnection)
             if (!currentApiKey.isNullOrBlank()) SecondaryAction("移除本机密钥", onRemoveKey)
-            Text("密钥使用 Android Keystore 保护的 AES-GCM 加密后保存在本机。测试连接会真实请求 DeepSeek 余额接口。",
-                color = Palette.secondary, fontSize = 11.sp, lineHeight = 16.sp)
+            Text("密钥使用 Android Keystore 保护的 AES-GCM 加密后保存在本机。", color = Palette.secondary, fontSize = 11.sp, lineHeight = 16.sp)
+        }
+
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.card).clickable(onClick = onTestConnection).padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("⟳", color = Palette.blue, fontSize = 25.sp)
+                Text("测试连接", color = Palette.text, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                Text(if (isTestingConnection) "正在测试…" else "立即测试  ›", color = Palette.secondary, fontSize = 13.sp)
+            }
             if (connectionMessage != null) {
-                Text(connectionMessage, color = if (connectionMessage.startsWith("连接成功")) Palette.greenText else Palette.secondary,
-                    fontSize = 12.sp, lineHeight = 17.sp)
+                Spacer(Modifier.height(8.dp))
+                Text(connectionMessage, color = if (connectionMessage.startsWith("连接成功")) Palette.greenText else Palette.secondary, fontSize = 12.sp, lineHeight = 17.sp)
             }
         }
 
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.card).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("刷新与提醒", fontSize = 17.sp, color = Palette.text, fontWeight = FontWeight.Bold)
+            Box {
+                Row(
+                    Modifier.fillMaxWidth().clickable { refreshMenuExpanded = true }.padding(vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("◷", color = Palette.blue, fontSize = 22.sp)
+                    Text("自动刷新", color = Palette.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Text(selectedRefreshLabel + "  ›", color = Palette.secondary, fontSize = 13.sp)
+                }
+                DropdownMenu(expanded = refreshMenuExpanded, onDismissRequest = { refreshMenuExpanded = false }) {
+                    refreshOptions.forEach { option ->
+                        DropdownMenuItem(onClick = { onRefreshIntervalChange(option.first); refreshMenuExpanded = false }) {
+                            Text(option.second, color = Palette.text)
+                        }
+                    }
+                }
+            }
+            Text(if (refreshIntervalMinutes == 0) "前台与后台自动刷新均关闭，可在概览页手动刷新。" else "前台与后台按所选间隔刷新；Android 后台最短周期为 15 分钟。", color = Palette.secondary, fontSize = 11.sp)
+            DividerLine()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("♧", color = Palette.blue, fontSize = 22.sp)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("余额提醒", color = Palette.text, fontSize = 14.sp)
+                    Text("余额低于设定阈值时推送通知，12 小时内最多一次", color = Palette.secondary, fontSize = 11.sp)
+                }
+                Switch(checked = balanceReminderEnabled, onCheckedChange = onBalanceReminderChange,
+                    colors = SwitchDefaults.colors(checkedThumbColor = Palette.blue))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("低于阈值", color = Palette.secondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                BasicTextField(
+                    value = balanceThresholdText,
+                    onValueChange = onBalanceThresholdChange,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    textStyle = TextStyle(color = Palette.text, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End),
+                    modifier = Modifier.width(110.dp).clip(RoundedCornerShape(12.dp)).background(Palette.softCard).padding(horizontal = 12.dp, vertical = 10.dp)
+                )
+                Text(" CNY", color = Palette.secondary, fontSize = 12.sp)
+            }
+            DividerLine()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("▤", color = Palette.blue, fontSize = 22.sp)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("状态栏余额通知", color = Palette.text, fontSize = 14.sp)
+                    Text("每次余额查询成功后显示账户余额", color = Palette.secondary, fontSize = 11.sp)
+                }
+                Switch(checked = statusBalanceNotificationEnabled, onCheckedChange = onStatusBalanceNotificationChange,
+                    colors = SwitchDefaults.colors(checkedThumbColor = Palette.blue))
+            }
+        }
+
+        SectionHeading("通用", "外观与应用信息")
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Palette.card).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("外观", color = Palette.text, fontSize = 14.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                AppearanceChoice("浅色", appearanceMode == AppSettings.APPEARANCE_LIGHT, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_LIGHT) }
+                AppearanceChoice("深色", appearanceMode == AppSettings.APPEARANCE_DARK, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_DARK) }
+                AppearanceChoice("跟随系统", appearanceMode == AppSettings.APPEARANCE_SYSTEM, Modifier.weight(1f)) { onAppearanceChange(AppSettings.APPEARANCE_SYSTEM) }
+            }
+            DividerLine()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("关于应用", color = Palette.text, modifier = Modifier.weight(1f))
+                Text("1.50  ›", color = Palette.secondary)
+            }
+        }
         InfoCard("接口说明", "本应用展示 DeepSeek 官方余额接口返回的账户可用状态、总余额、赠送余额和充值余额。接口不提供 Token 消耗明细或账单历史。")
     }
 }

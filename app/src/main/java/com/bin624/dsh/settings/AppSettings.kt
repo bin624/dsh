@@ -17,6 +17,9 @@ class AppSettings(context: Context) {
     var refreshIntervalMinutes: Int
         get() = preferences.getInt(KEY_REFRESH_INTERVAL, 0)
         set(value) { preferences.edit().putInt(KEY_REFRESH_INTERVAL, value.coerceAtLeast(0)).apply() }
+    var balanceReminderThreshold: Double
+        get() = preferences.getFloat(KEY_BALANCE_THRESHOLD, 10f).toDouble()
+        set(value) { preferences.edit().putFloat(KEY_BALANCE_THRESHOLD, value.coerceAtLeast(0.0).toFloat()).apply() }
     var balanceReminderEnabled: Boolean
         get() = preferences.getBoolean(KEY_BALANCE_REMINDER, false)
         set(value) { preferences.edit().putBoolean(KEY_BALANCE_REMINDER, value).apply() }
@@ -30,6 +33,7 @@ class AppSettings(context: Context) {
         private const val KEY_APPEARANCE = "appearance_mode"
         private const val KEY_REFRESH_INTERVAL = "refresh_interval_minutes"
         private const val KEY_BALANCE_REMINDER = "balance_reminder_enabled"
+        private const val KEY_BALANCE_THRESHOLD = "balance_reminder_threshold"
         private const val KEY_STATUS_NOTIFICATION = "status_balance_notification_enabled"
     }
 }

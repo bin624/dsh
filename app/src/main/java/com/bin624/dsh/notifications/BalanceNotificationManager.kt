@@ -8,6 +8,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.bin624.dsh.data.BalanceSnapshot
 import java.math.BigDecimal
+import android.content.SharedPreferences
+import android.preference.PreferenceManager
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -20,8 +22,17 @@ object BalanceNotificationManager {
             .ifBlank { "已连接 DeepSeek，但接口未返回余额明细。" }
         notify(context, BALANCE_NOTIFICATION_ID, "DeepSeek 账户余额", body)
     }
-    fun showUnavailable(context: Context) {
-        notify(context, REMINDER_NOTIFICATION_ID, "DeepSeek 余额提醒", "DeepSeek 返回账户余额不可用，请检查账户余额后再调用 API。")
+    fun showLowBalanceIfNeeded(context: Context, snapshot: BalanceSnapshot, thresholdCny: Double) {
+        val cny = snapshot.balances.firstOrNull { it.currency.equals("CNY", ignoreCase = true) } ?: return
+        val current = runCatching { BigDecimal(cny.totalBalance) }.getOrNull() ?: return
+        if (current >= BigDecimal.valueOf(thresholdCny.coerceAtLeast(0.0))) return
+        val prefs = context.getSharedPreferences("deepseek_notification_state", Context.MODE_PRIVATE)
+        val lastSent = prefs.getLong("last_low_balance_notification", 0L)
+        val now = System.currentTimeMillis()
+        if (now - lastSent < 12L * 60L * 60L * 1000L) return
+        val body = "当前余额 ¥" + format(cny.totalBalance) + "，已低于提醒阈值 ¥" + format(thresholdCny.toString()) + "。"
+        notify(context, REMINDER_NOTIFICATION_ID, "DeepSeek 余额偏低", body)
+        prefs.edit().putLong("last_low_balance_notification", now).apply()
     }
     private fun notify(context: Context, id: Int, title: String, body: String) {
         createChannel(context)

@@ -17,7 +17,7 @@ class BalanceRefreshWorker(appContext: Context, params: WorkerParameters) : Coro
         return try {
             val snapshot = DeepSeekBalanceApi.getBalance(key)
             if (settings.statusBalanceNotificationEnabled) BalanceNotificationManager.showBalance(applicationContext, snapshot)
-            if (settings.balanceReminderEnabled && !snapshot.isAvailable) BalanceNotificationManager.showUnavailable(applicationContext)
+            if (settings.balanceReminderEnabled) BalanceNotificationManager.showLowBalanceIfNeeded(applicationContext, snapshot, settings.balanceReminderThreshold)
             Result.success()
         } catch (_: Exception) { Result.retry() }
     }
