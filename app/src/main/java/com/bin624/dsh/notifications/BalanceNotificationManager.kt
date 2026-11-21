@@ -22,6 +22,19 @@ object BalanceNotificationManager {
             .ifBlank { "已连接 DeepSeek，但接口未返回余额明细。" }
         notify(context, BALANCE_NOTIFICATION_ID, "DeepSeek 账户余额", body)
     }
+    fun showKeyRemoved(context: Context) {
+        notify(
+            context,
+            BALANCE_NOTIFICATION_ID,
+            "DeepSeek 账户状态",
+            "API Key 已移除，账户未连接，余额通知已暂停。"
+        )
+    }
+
+    fun cancelBalance(context: Context) {
+        NotificationManagerCompat.from(context).cancel(BALANCE_NOTIFICATION_ID)
+    }
+
     fun showLowBalanceIfNeeded(context: Context, snapshot: BalanceSnapshot, thresholdCny: Double) {
         val cny = snapshot.balances.firstOrNull { it.currency.equals("CNY", ignoreCase = true) } ?: return
         val current = runCatching { BigDecimal(cny.totalBalance) }.getOrNull() ?: return

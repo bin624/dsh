@@ -229,8 +229,22 @@ fun DeepSeekApp() {
             isConnected = false
             lastUpdated = null
             errorMessage = null
+            if (statusBalanceNotificationEnabled) {
+                BalanceNotificationManager.showKeyRemoved(context)
+            } else {
+                BalanceNotificationManager.cancelBalance(context)
+            }
         } else {
             requestBalance(key)
+        }
+    }
+
+    LaunchedEffect(statusBalanceNotificationEnabled) {
+        if (statusBalanceNotificationEnabled) {
+            val key = apiKey
+            if (!key.isNullOrBlank()) requestBalance(key)
+        } else {
+            BalanceNotificationManager.cancelBalance(context)
         }
     }
 
@@ -308,7 +322,14 @@ fun DeepSeekApp() {
                     },
                     onRemoveKey = {
                         runCatching { keyStore.clear() }
-                            .onSuccess { apiKey = null; keyInput = ""; balance = null; isConnected = false; settingsMessage = "已移除本机保存的 API Key。" }
+                            .onSuccess {
+                                apiKey = null
+                                keyInput = ""
+                                balance = null
+                                isConnected = false
+                                BalanceNotificationManager.showKeyRemoved(context)
+                                settingsMessage = "已移除本机保存的 API Key，通知栏状态已更新。"
+                            }
                             .onFailure { settingsMessage = "无法清除本地密钥，请稍后重试。" }
                     },
                     appearanceMode = appearanceMode,
