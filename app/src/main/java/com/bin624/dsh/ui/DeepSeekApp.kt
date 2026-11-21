@@ -122,12 +122,6 @@ fun DeepSeekApp() {
     var settingsMessage by remember { mutableStateOf<String?>(null) }
     var pendingNotificationOption by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-    }
-
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -148,6 +142,12 @@ fun DeepSeekApp() {
         } else {
             settingsMessage = "系统未授予通知权限，请在系统设置中允许本应用发送通知。"
         }
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
