@@ -12,6 +12,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import android.graphics.drawable.AnimatedImageDrawable
+import android.os.Build
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.Switch
 import androidx.compose.material.SwitchDefaults
 import androidx.compose.material.DropdownMenu
@@ -911,19 +916,12 @@ private fun AppearanceChoice(label: String, selected: Boolean, modifier: Modifie
 
 @Composable
 private fun WhaleStatusBlob(connected: Boolean, modifier: Modifier = Modifier) {
-    val floatOffset = if (connected) {
-        val transition = rememberInfiniteTransition(label = "whale-float")
-        val offset by transition.animateFloat(-3.5f, 3.5f,
-            infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "whale-float-offset")
-        offset
-    } else 0f
-    val tilt = if (connected) {
-        val transition = rememberInfiniteTransition(label = "whale-tilt")
-        val angle by transition.animateFloat(-1.2f, 1.2f,
-            infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "whale-tilt-angle")
-        angle
-    } else 0f
-
+    val context = LocalContext.current
+    val imageRes = if (connected) {
+        com.bin624.dsh.R.drawable.whale_connected
+    } else {
+        com.bin624.dsh.R.drawable.whale_disconnected
+    }
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val cx = size.width / 2f
@@ -946,10 +944,12 @@ private fun WhaleStatusBlob(connected: Boolean, modifier: Modifier = Modifier) {
             ), style = Fill)
             drawPath(blob, Color.White.copy(alpha = 0.34f), style = Stroke(1.5.dp.toPx()))
         }
-        WhaleGirlCanvas(Modifier.fillMaxSize(0.76f).graphicsLayer {
-            translationY = floatOffset.dp.toPx()
-            rotationZ = tilt
-        })
+        Image(
+            painter = painterResource(id = imageRes),
+            contentDescription = if (connected) "连接成功的鲸鱼娘动画" else "未连接的鲸鱼娘",
+            modifier = Modifier.fillMaxSize(0.78f),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit
+        )
         if (!connected) {
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp)
                 .clip(CircleShape).background(Color.White.copy(alpha = 0.82f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
