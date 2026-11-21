@@ -17,6 +17,9 @@ import com.kyant.backdrop.RuntimeShader
 import com.kyant.backdrop.asComposeShader
 import com.kyant.backdrop.isRuntimeShaderSupported
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 class InteractiveHighlight(
@@ -35,6 +38,13 @@ class InteractiveHighlight(
         Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
 
     private var startPosition = Offset.Zero
+    private val positionUpdates = Channel<Offset>(Channel.CONFLATED)
+
+    init {
+        animationScope.launch {
+            positionUpdates.receiveAsFlow().collect { positionAnimation.snapTo(it) }
+        }
+    }
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
 
@@ -115,7 +125,7 @@ half4 main(float2 coord) {
                     }
                 }
             ) { change, _ ->
-                animationScope.launch { positionAnimation.snapTo(change.position) }
+                positionUpdates.trySend(change.position)
             }
         }
 }
