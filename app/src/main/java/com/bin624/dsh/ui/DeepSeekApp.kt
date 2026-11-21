@@ -3,7 +3,6 @@ package com.bin624.dsh.ui
 import android.Manifest
 import android.graphics.Movie
 import android.content.pm.PackageManager
-import android.graphics.Movie
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -13,8 +12,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
 import android.os.Build
 import androidx.compose.material.Switch
 import androidx.compose.material.SwitchDefaults
@@ -62,14 +59,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -989,7 +983,7 @@ private fun WhaleStatusBlob(connected: Boolean, modifier: Modifier = Modifier) {
                 painter = painterResource(id = com.bin624.dsh.R.drawable.whale_disconnected),
                 contentDescription = "未连接的鲸鱼娘",
                 modifier = Modifier.fillMaxSize(0.80f),
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                contentScale = ContentScale.Fit
             )
         }
 
