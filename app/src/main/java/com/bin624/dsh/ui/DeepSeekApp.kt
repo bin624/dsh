@@ -2,7 +2,6 @@ package com.bin624.dsh.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.os.Build
 import android.graphics.Movie
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,9 +20,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
-import android.graphics.drawable.AnimatedImageDrawable
 import android.os.Build
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.Switch
 import androidx.compose.material.SwitchDefaults
 import androidx.compose.material.DropdownMenu
