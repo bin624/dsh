@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -55,8 +54,6 @@ import com.kyant.shapes.Capsule
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
-import kotlin.math.abs
-import kotlin.math.sign
 
 private data class NavigationItem(
     val title: String,
@@ -112,16 +109,6 @@ fun LiquidGlassBottomBar(
         val tabWidth = with(density) {
             (constraints.maxWidth.toFloat() - 8f.dp.toPx()) / items.size
         }
-        val offsetAnimation = remember { androidx.compose.animation.core.Animatable(0f) }
-        val panelOffset by remember(density) {
-            derivedStateOf {
-                val fraction = (offsetAnimation.value / constraints.maxWidth).coerceIn(-1f, 1f)
-                with(density) {
-                    4f.dp.toPx() * fraction.sign * androidx.compose.animation.core.EaseOut.transform(abs(fraction))
-                }
-            }
-        }
-
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
                 animationScope = animationScope,
@@ -138,21 +125,13 @@ fun LiquidGlassBottomBar(
                     } else {
                         currentIndex = targetIndex
                     }
-                    animationScope.launch {
-                        offsetAnimation.animateTo(
-                            0f,
-                            androidx.compose.animation.core.spring(1f, 300f, 0.5f)
-                        )
-                    }
                 },
                 onDrag = { _, dragAmount ->
                     updateValue(
                         (targetValue + dragAmount.x / tabWidth * if (isLtr) 1f else -1f)
-                            .fastCoerceIn(0f, (items.size - 1).toFloat())
+                            .fastCoerceIn(0f, (items.size - 1).toFloat()),
+                        dragVelocity = (dragAmount.x / tabWidth) * 18f * if (isLtr) 1f else -1f
                     )
-                    animationScope.launch {
-                        offsetAnimation.snapTo(offsetAnimation.value + dragAmount.x)
-                    }
                 }
             )
         }
@@ -172,9 +151,9 @@ fun LiquidGlassBottomBar(
                 position = { size, _ ->
                     Offset(
                         if (isLtr) {
-                            (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset
+                            (dampedDragAnimation.value + 0.5f) * tabWidth
                         } else {
-                            size.width - (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset
+                            size.width - (dampedDragAnimation.value + 0.5f) * tabWidth
                         },
                         size.height / 2f
                     )
@@ -213,7 +192,6 @@ fun LiquidGlassBottomBar(
         // the active lens. Only its backdrop scale responds gently to pressure.
         Row(
             Modifier
-                .graphicsLayer { translationX = panelOffset }
                 .drawBackdrop(
                     backdrop = backdrop,
                     shape = { Capsule() },
@@ -254,7 +232,6 @@ fun LiquidGlassBottomBar(
                     .clearAndSetSemantics {}
                     .alpha(0f)
                     .layerBackdrop(tabsBackdrop)
-                    .graphicsLayer { translationX = panelOffset }
                     .drawBackdrop(
                         backdrop = backdrop,
                         shape = { Capsule() },
@@ -279,9 +256,9 @@ fun LiquidGlassBottomBar(
                 .padding(horizontal = 4.dp)
                 .graphicsLayer {
                     translationX = if (isLtr) {
-                        dampedDragAnimation.value * tabWidth + panelOffset
+                        dampedDragAnimation.value * tabWidth
                     } else {
-                        size.width - (dampedDragAnimation.value + 1f) * tabWidth + panelOffset
+                        size.width - (dampedDragAnimation.value + 1f) * tabWidth
                     }
                 }
                 .then(interactiveHighlight.gestureModifier)
