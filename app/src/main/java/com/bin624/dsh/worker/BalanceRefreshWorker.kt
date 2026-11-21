@@ -14,7 +14,14 @@ class BalanceRefreshWorker(appContext: Context, params: WorkerParameters) : Coro
         val settings = AppSettings(applicationContext)
         if (settings.refreshIntervalMinutes < 15) return Result.success()
         val key = runCatching { ApiKeyStore(applicationContext).read() }.getOrNull()
-        if (key.isNullOrBlank()) return Result.success()
+        if (key.isNullOrBlank()) {
+            if (settings.statusBalanceNotificationEnabled) {
+                BalanceNotificationManager.showKeyRemoved(applicationContext)
+            } else {
+                BalanceNotificationManager.cancelBalance(applicationContext)
+            }
+            return Result.success()
+        }
         return try {
             val snapshot = DeepSeekBalanceApi.getBalance(key)
             BalanceHistoryStore.record(applicationContext, snapshot)
