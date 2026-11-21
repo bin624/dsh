@@ -6,6 +6,8 @@
     <application
         android:allowBackup="false"
         android:label="DeepSeek 余额"
+        android:icon="@drawable/whale_disconnected"
+        android:roundIcon="@drawable/whale_disconnected"
         android:supportsRtl="true"
         android:theme="@style/Theme.DeepSeekBalance"
         android:usesCleartextTraffic="false">
