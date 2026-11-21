@@ -11,12 +11,23 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.time.Clock
 
+/**
+ * Damped, interruptible tab motion.
+ *
+ * Pointer samples are sent through conflated channels instead of creating a
+ * coroutine for every move event. This prevents a backlog when devices dispatch
+ * touch events faster than the render thread can process them.
+ */
 class DampedDragAnimation(
     private val animationScope: CoroutineScope,
     val initialValue: Float,
@@ -28,32 +39,44 @@ class DampedDragAnimation(
     val onDragStopped: DampedDragAnimation.() -> Unit,
     val onDrag: DampedDragAnimation.(size: IntSize, dragAmount: Offset) -> Unit,
 ) {
-
     private val valueAnimationSpec =
-        spring(1f, 720f, visibilityThreshold)
+        spring<Float>(dampingRatio = 0.86f, stiffness = 390f, visibilityThreshold = visibilityThreshold)
     private val velocityAnimationSpec =
-        spring(0.5f, 300f, visibilityThreshold * 10f)
+        spring<Float>(dampingRatio = 0.72f, stiffness = 320f, visibilityThreshold = visibilityThreshold * 10f)
     private val pressProgressAnimationSpec =
-        spring(0.58f, 680f, 0.001f)
+        spring<Float>(dampingRatio = 0.72f, stiffness = 520f, visibilityThreshold = 0.001f)
     private val scaleXAnimationSpec =
-        spring(0.52f, 360f, 0.001f)
+        spring<Float>(dampingRatio = 0.64f, stiffness = 340f, visibilityThreshold = 0.001f)
     private val scaleYAnimationSpec =
-        spring(0.56f, 320f, 0.001f)
+        spring<Float>(dampingRatio = 0.70f, stiffness = 300f, visibilityThreshold = 0.001f)
 
-    private val valueAnimation =
-        Animatable(initialValue, visibilityThreshold)
-    private val velocityAnimation =
-        Animatable(0f, 5f)
-    private val pressProgressAnimation =
-        Animatable(0f, 0.001f)
-    private val scaleXAnimation =
-        Animatable(initialScale, 0.001f)
-    private val scaleYAnimation =
-        Animatable(initialScale, 0.001f)
+    private val valueAnimation = Animatable(initialValue, visibilityThreshold)
+    private val velocityAnimation = Animatable(0f, 5f)
+    private val pressProgressAnimation = Animatable(0f, 0.001f)
+    private val scaleXAnimation = Animatable(initialScale, 0.001f)
+    private val scaleYAnimation = Animatable(initialScale, 0.001f)
 
     private val mutatorMutex = MutatorMutex()
-
     private val velocityTracker = VelocityTracker()
+    private val valueUpdates = Channel<Float>(Channel.CONFLATED)
+    private val velocityUpdates = Channel<Float>(Channel.CONFLATED)
+
+    init {
+        // Exactly one value-animation collector; new pointer samples replace
+        // stale targets, so motion never queues up behind old drag events.
+        animationScope.launch {
+            valueUpdates.receiveAsFlow().collectLatest { target ->
+                valueAnimation.animateTo(target, valueAnimationSpec) {
+                    updateVelocity()
+                }
+            }
+        }
+        animationScope.launch {
+            velocityUpdates.receiveAsFlow().collect { target ->
+                velocityAnimation.snapTo(target)
+            }
+        }
+    }
 
     val value: Float get() = valueAnimation.value
     val progress: Float get() = (value - valueRange.start) / (valueRange.endInclusive - valueRange.start)
@@ -107,21 +130,16 @@ class DampedDragAnimation(
     }
 
     fun updateValue(value: Float) {
-        val targetValue = value.coerceIn(valueRange)
-        animationScope.launch {
-            launch { valueAnimation.animateTo(targetValue, valueAnimationSpec) { updateVelocity() } }
-        }
+        valueUpdates.trySend(value.coerceIn(valueRange))
     }
 
     fun animateToValue(value: Float) {
+        val target = value.coerceIn(valueRange)
         animationScope.launch {
             mutatorMutex.mutate {
                 press()
-                val targetValue = value.coerceIn(valueRange)
-                launch { valueAnimation.animateTo(targetValue, valueAnimationSpec) }
-                if (velocity != 0f) {
-                    launch { velocityAnimation.animateTo(0f, velocityAnimationSpec) }
-                }
+                valueUpdates.trySend(target)
+                if (velocity != 0f) velocityUpdates.trySend(0f)
                 release()
             }
         }
@@ -132,7 +150,8 @@ class DampedDragAnimation(
             Clock.System.now().toEpochMilliseconds(),
             Offset(value, 0f)
         )
-        val targetVelocity = velocityTracker.calculateVelocity().x / (valueRange.endInclusive - valueRange.start)
-        animationScope.launch { velocityAnimation.animateTo(targetVelocity, velocityAnimationSpec) }
+        val range = (valueRange.endInclusive - valueRange.start).coerceAtLeast(0.001f)
+        val targetVelocity = velocityTracker.calculateVelocity().x / range
+        velocityUpdates.trySend(targetVelocity)
     }
 }
