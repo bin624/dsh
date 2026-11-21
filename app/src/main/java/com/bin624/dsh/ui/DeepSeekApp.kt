@@ -122,6 +122,12 @@ fun DeepSeekApp() {
     var settingsMessage by remember { mutableStateOf<String?>(null) }
     var pendingNotificationOption by remember { mutableIntStateOf(0) }
 
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -352,6 +358,8 @@ fun DeepSeekApp() {
                     isConnected = isConnected,
                     lastUpdated = lastUpdated,
                     error = errorMessage,
+                    lowBalance = balanceReminderEnabled && (balance?.balances?.firstOrNull { it.currency.equals("CNY", true) }?.totalBalance?.let { runCatching { BigDecimal(it) < BigDecimal.valueOf(appSettings.balanceReminderThreshold) }.getOrDefault(false) } == true),
+                    lowBalanceThreshold = appSettings.balanceReminderThreshold,
                     onRefresh = {
                         val key = apiKey
                         if (key.isNullOrBlank()) errorMessage = "请先到设置页配置 API Key，再进行余额查询。" else requestBalance(key)
@@ -382,10 +390,13 @@ private fun OverviewScreen(
     isConnected: Boolean,
     lastUpdated: String?,
     error: String?,
+    lowBalance: Boolean,
+    lowBalanceThreshold: Double,
     onRefresh: () -> Unit
 ) {
     val first = balance?.balances?.firstOrNull()
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (lowBalance) LowBalanceWarningCard(balance, lowBalanceThreshold)
         BalanceHeroCard(
             balance = balance,
             hasApiKey = hasApiKey,
@@ -414,6 +425,15 @@ private fun OverviewScreen(
         if (error != null) {
             ErrorCard(error)
         }
+    }
+}
+
+@Composable
+private fun LowBalanceWarningCard(balance: BalanceSnapshot?, threshold: Double) {
+    val cny = balance?.balances?.firstOrNull { it.currency.equals("CNY", true) }?.totalBalance ?: return
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xFFFFE8E5)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text("余额偏低，请及时充值", color = Color(0xFF9D3028), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        Text("当前余额 ¥" + formatMoney(cny, "CNY") + "，低于提醒阈值 ¥" + formatMoney(threshold.toString(), "CNY") + "。", color = Color(0xFF9D3028), fontSize = 12.sp)
     }
 }
 
