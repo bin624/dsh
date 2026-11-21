@@ -1,16 +1,11 @@
 package com.bin624.dsh.ui
 
 import android.Manifest
+import android.graphics.Movie
 import android.content.pm.PackageManager
 import android.graphics.Movie
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
@@ -30,15 +25,11 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.bin624.dsh.notifications.BalanceNotificationManager
 import com.bin624.dsh.settings.AppSettings
 import com.bin624.dsh.settings.AutoRefreshScheduler
-import kotlin.math.cos
-import kotlin.math.sin
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -71,11 +62,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -921,19 +915,28 @@ private fun AppearanceChoice(label: String, selected: Boolean, modifier: Modifie
 @Composable
 private fun WhaleStatusBlob(connected: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val gifMovie = remember(context) {
-        runCatching {
-            context.resources.openRawResource(com.bin624.dsh.R.drawable.whale_connected).use { Movie.decodeStream(it) }
-        }.getOrNull()
+    val movie = remember(context, connected) {
+        if (connected) {
+            runCatching {
+                context.resources.openRawResource(com.bin624.dsh.R.drawable.whale_connected).use {
+                    Movie.decodeStream(it)
+                }
+            }.getOrNull()
+        } else null
     }
-    var gifFrame by remember { mutableIntStateOf(0) }
-    LaunchedEffect(connected, gifMovie) {
-        if (connected && gifMovie != null) {
+    var frameTimeMillis by remember(movie) { mutableIntStateOf(0) }
+
+    LaunchedEffect(movie) {
+        val duration = movie?.duration()?.takeIf { it > 0 } ?: 1
+        if (movie != null) {
             while (true) {
-                withFrameNanos { frame -> gifFrame = ((frame / 1_000_000L) % gifMovie.duration().coerceAtLeast(1)).toInt() }
+                withFrameNanos { frameTimeNanos ->
+                    frameTimeMillis = ((frameTimeNanos / 1_000_000L) % duration).toInt()
+                }
             }
         }
     }
+
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val cx = size.width / 2f
@@ -943,101 +946,62 @@ private fun WhaleStatusBlob(connected: Boolean, modifier: Modifier = Modifier) {
             val steps = 144
             for (i in 0..steps) {
                 val a = i.toDouble() / steps.toDouble() * Math.PI * 2.0
-                val wave = 1f + 0.065f * sin(a * 8.0).toFloat() + 0.018f * sin(a * 13.0 + 0.6).toFloat()
+                val wave = 1f + 0.065f * kotlin.math.sin(a * 8.0).toFloat() +
+                    0.018f * kotlin.math.sin(a * 13.0 + 0.6).toFloat()
                 val r = radius * wave
-                val x = cx + cos(a).toFloat() * r
-                val y = cy + sin(a).toFloat() * r
+                val x = cx + kotlin.math.cos(a).toFloat() * r
+                val y = cy + kotlin.math.sin(a).toFloat() * r
                 if (i == 0) blob.moveTo(x, y) else blob.lineTo(x, y)
             }
             blob.close()
-            drawPath(blob, Brush.linearGradient(
-                listOf(Color(0xFF369BFF), Color(0xFF087FF5), Color(0xFF2689F4)),
-                start = Offset(size.width * 0.15f, 0f), end = Offset(size.width * 0.85f, size.height)
-            ), style = Fill)
+            drawPath(
+                blob,
+                Brush.linearGradient(
+                    listOf(Color(0xFF369BFF), Color(0xFF087FF5), Color(0xFF2689F4)),
+                    start = Offset(size.width * 0.15f, 0f),
+                    end = Offset(size.width * 0.85f, size.height)
+                ),
+                style = Fill
+            )
             drawPath(blob, Color.White.copy(alpha = 0.34f), style = Stroke(1.5.dp.toPx()))
         }
-        if (connected && gifMovie != null) {
-            Canvas(Modifier.fillMaxSize(0.84f)) {
-                gifMovie.setTime(gifFrame)
-                drawIntoCanvas { canvas ->
-                    val scale = minOf(size.width / gifMovie.width().toFloat(), size.height / gifMovie.height().toFloat())
-                    val w = gifMovie.width() * scale
-                    val h = gifMovie.height() * scale
-                    gifMovie.draw(canvas.nativeCanvas, (size.width - w) / 2f, (size.height - h) / 2f)
+
+        if (connected && movie != null) {
+            Canvas(Modifier.fillMaxSize(0.80f)) {
+                movie.setTime(frameTimeMillis)
+                drawIntoCanvas { composeCanvas ->
+                    val canvas = composeCanvas.nativeCanvas
+                    val scale = minOf(
+                        size.width / movie.width().toFloat(),
+                        size.height / movie.height().toFloat()
+                    )
+                    val left = (size.width - movie.width() * scale) / 2f
+                    val top = (size.height - movie.height() * scale) / 2f
+                    val save = canvas.save()
+                    canvas.translate(left, top)
+                    canvas.scale(scale, scale)
+                    movie.draw(canvas, 0f, 0f)
+                    canvas.restoreToCount(save)
                 }
             }
         } else {
             Image(
-                painter = painterResource(com.bin624.dsh.R.drawable.whale_disconnected),
-                contentDescription = "未连接状态鲸鱼娘",
-                modifier = Modifier.fillMaxSize(0.84f),
-                contentScale = ContentScale.Fit
+                painter = painterResource(id = com.bin624.dsh.R.drawable.whale_disconnected),
+                contentDescription = "未连接的鲸鱼娘",
+                modifier = Modifier.fillMaxSize(0.80f),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit
             )
-            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp)
-                .clip(CircleShape).background(Color.White.copy(alpha = 0.82f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+        }
+
+        if (!connected) {
+            Box(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp)
+                    .clip(CircleShape).background(Color.White.copy(alpha = 0.82f))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
                 Text("待连接", color = Color(0xFF41658C), fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
             }
         }
-    }
-}
-
-@Composable
-private fun WhaleGirlCanvas(modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val hair = Color(0xFF123C8E)
-        val skin = Color(0xFFFFD9CF)
-        val tail = Path().apply {
-            moveTo(w*.48f,h*.69f); cubicTo(w*.39f,h*.78f,w*.31f,h*.82f,w*.25f,h*.92f)
-            cubicTo(w*.37f,h*.91f,w*.45f,h*.88f,w*.50f,h*.82f)
-            cubicTo(w*.56f,h*.88f,w*.66f,h*.91f,w*.78f,h*.92f)
-            cubicTo(w*.70f,h*.80f,w*.60f,h*.75f,w*.54f,h*.69f); close()
-        }
-        drawPath(tail, Brush.verticalGradient(listOf(Color(0xFF7BE3FF),Color(0xFF087FF5))))
-        drawOval(Brush.verticalGradient(listOf(Color.White,Color(0xFFB9E8FF))),Offset(w*.35f,h*.52f),Size(w*.31f,h*.29f))
-        drawOval(hair,Offset(w*.18f,h*.06f),Size(w*.64f,h*.58f))
-        drawOval(skin,Offset(w*.28f,h*.19f),Size(w*.44f,h*.43f))
-        val left = Path().apply {
-            moveTo(w*.30f,h*.23f); cubicTo(w*.12f,h*.35f,w*.18f,h*.62f,w*.34f,h*.66f)
-            cubicTo(w*.29f,h*.49f,w*.34f,h*.36f,w*.38f,h*.27f); close()
-        }
-        val right = Path().apply {
-            moveTo(w*.70f,h*.22f); cubicTo(w*.88f,h*.34f,w*.82f,h*.61f,w*.66f,h*.67f)
-            cubicTo(w*.72f,h*.48f,w*.68f,h*.34f,w*.63f,h*.27f); close()
-        }
-        drawPath(left,Color(0xFF238DE6)); drawPath(right,Color(0xFF238DE6))
-        val bangs = Path().apply {
-            moveTo(w*.23f,h*.31f); cubicTo(w*.22f,h*.05f,w*.65f,h*.03f,w*.76f,h*.28f)
-            cubicTo(w*.64f,h*.23f,w*.58f,h*.39f,w*.51f,h*.34f)
-            cubicTo(w*.46f,h*.43f,w*.40f,h*.36f,w*.37f,h*.30f)
-            cubicTo(w*.31f,h*.38f,w*.28f,h*.35f,w*.23f,h*.31f); close()
-        }
-        drawPath(bangs,hair)
-        drawPath(Path().apply { moveTo(w*.32f,h*.17f); cubicTo(w*.43f,h*.08f,w*.60f,h*.10f,w*.68f,h*.19f) },
-            Color(0xFF77CFFF),style=Stroke(w*.025f))
-        val eye=Color(0xFF09275F)
-        drawOval(eye,Offset(w*.36f,h*.39f),Size(w*.075f,h*.105f))
-        drawOval(eye,Offset(w*.57f,h*.39f),Size(w*.075f,h*.105f))
-        drawCircle(Color.White,w*.017f,Offset(w*.395f,h*.415f))
-        drawCircle(Color.White,w*.017f,Offset(w*.605f,h*.415f))
-        drawCircle(Color(0xFFFFA7AB).copy(alpha=.65f),w*.045f,Offset(w*.32f,h*.51f))
-        drawCircle(Color(0xFFFFA7AB).copy(alpha=.65f),w*.045f,Offset(w*.68f,h*.51f))
-        drawOval(Color(0xFFB94D67),Offset(w*.46f,h*.53f),Size(w*.08f,h*.045f))
-        val collar=Path().apply { moveTo(w*.38f,h*.64f); lineTo(w*.50f,h*.73f); lineTo(w*.62f,h*.64f); lineTo(w*.57f,h*.79f); lineTo(w*.43f,h*.79f); close() }
-        drawPath(collar,Color.White)
-        val bowLeft=Path().apply { moveTo(w*.49f,h*.72f); lineTo(w*.37f,h*.67f); lineTo(w*.40f,h*.79f); close() }
-        val bowRight=Path().apply { moveTo(w*.51f,h*.72f); lineTo(w*.63f,h*.67f); lineTo(w*.60f,h*.79f); close() }
-        drawPath(bowLeft,Color(0xFF258EF0)); drawPath(bowRight,Color(0xFF55C5FF))
-        drawCircle(Color(0xFF087FF5),w*.06f,Offset(w*.50f,h*.72f))
-        val fin=Path().apply {
-            moveTo(w*.62f,h*.20f); cubicTo(w*.68f,h*.08f,w*.79f,h*.10f,w*.82f,h*.18f)
-            cubicTo(w*.74f,h*.18f,w*.70f,h*.27f,w*.62f,h*.20f); close()
-        }
-        drawPath(fin,Color(0xFFB7EEFF))
-        drawCircle(Color.White,w*.018f,Offset(w*.69f,h*.19f))
-        drawCircle(Color.White.copy(alpha=.78f),w*.025f,Offset(w*.17f,h*.31f))
-        drawCircle(Color(0xFFB8EFFF),w*.035f,Offset(w*.82f,h*.48f))
     }
 }
 
