@@ -1,6 +1,7 @@
 package com.bin624.dsh.notifications
 
 import android.app.NotificationChannel
+import android.graphics.BitmapFactory
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
@@ -49,8 +50,11 @@ object BalanceNotificationManager {
     }
     private fun notify(context: Context, id: Int, title: String, body: String) {
         createChannel(context)
+        val whaleIcon = runCatching { BitmapFactory.decodeResource(context.resources, com.bin624.dsh.R.drawable.whale_disconnected) }.getOrNull()
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(title).setContentText(body)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setLargeIcon(whaleIcon)
+            .setContentTitle(title).setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body)).setPriority(NotificationCompat.PRIORITY_HIGH)
             .setTicker(title + "：" + body).setWhen(System.currentTimeMillis()).setShowWhen(true)
             .setOngoing(id == BALANCE_NOTIFICATION_ID).setAutoCancel(id != BALANCE_NOTIFICATION_ID)
