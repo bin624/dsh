@@ -123,6 +123,56 @@ fun LiquidGlassBottomBar(
         modifier = modifier
             .fillMaxWidth()
             .height(78.dp)
+            .pointerInput(items.size) {
+                val insetPx = 6.dp.toPx()
+                detectDragGestures(
+                    onDragStart = {
+                        isDragging = true
+                        scope.launch { pressProgress.animateTo(1f, pressSpring) }
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        val itemWidthPx = (size.width - insetPx * 2f) / items.size
+                        val fingerProgress = (
+                            (change.position.x - insetPx - itemWidthPx / 2f) / itemWidthPx
+                        ).coerceIn(0f, (items.size - 1).toFloat())
+                        scope.launch { indicatorProgress.snapTo(fingerProgress) }
+                        val normalizedVelocity = (dragAmount.x / itemWidthPx) * 1.9f
+                        scope.launch { dragVelocity.snapTo(normalizedVelocity) }
+                    },
+                    onDragEnd = {
+                        val target = kotlin.math.round(indicatorProgress.value)
+                            .toInt()
+                            .coerceIn(items.indices)
+                        isDragging = false
+                        onSelect(target)
+                        scope.launch {
+                            launch { indicatorProgress.animateTo(target.toFloat(), motionSpring) }
+                            launch { pressProgress.animateTo(0f, pressSpring) }
+                            launch {
+                                dragVelocity.animateTo(
+                                    0f,
+                                    spring(dampingRatio = 0.58f, stiffness = 300f)
+                                )
+                            }
+                        }
+                    },
+                    onDragCancel = {
+                        val target = safeSelectedIndex
+                        isDragging = false
+                        scope.launch {
+                            launch { indicatorProgress.animateTo(target.toFloat(), motionSpring) }
+                            launch { pressProgress.animateTo(0f, pressSpring) }
+                            launch {
+                                dragVelocity.animateTo(
+                                    0f,
+                                    spring(dampingRatio = 0.58f, stiffness = 300f)
+                                )
+                            }
+                        }
+                    }
+                )
+            }
     ) {
         val innerHorizontalPadding = 6.dp
         val itemWidth = (maxWidth - innerHorizontalPadding * 2) / items.size
@@ -272,50 +322,6 @@ fun LiquidGlassBottomBar(
                 )
         )
 
-        // Drag can begin anywhere on the bar. A short tap is left to the tab's
-        // clickable; after touch slop, the lens tracks the finger continuously.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .pointerInput(itemWidthPx, safeSelectedIndex) {
-                    detectDragGestures(
-                        onDragStart = {
-                            isDragging = true
-                            scope.launch { pressProgress.animateTo(1f, pressSpring) }
-                        },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            val fingerProgress = (
-                                (change.position.x - insetPx - itemWidthPx / 2f) / itemWidthPx
-                            ).coerceIn(0f, (items.size - 1).toFloat())
-                            scope.launch { indicatorProgress.snapTo(fingerProgress) }
-                            val normalizedVelocity = (dragAmount.x / itemWidthPx) * 1.9f
-                            scope.launch { dragVelocity.snapTo(normalizedVelocity) }
-                        },
-                        onDragEnd = {
-                            val target = indicatorProgress.value
-                                .let { kotlin.math.round(it).toInt() }
-                                .coerceIn(items.indices)
-                            isDragging = false
-                            onSelect(target)
-                            scope.launch {
-                                launch { indicatorProgress.animateTo(target.toFloat(), motionSpring) }
-                                launch { pressProgress.animateTo(0f, pressSpring) }
-                                launch { dragVelocity.animateTo(0f, spring(dampingRatio = 0.58f, stiffness = 300f)) }
-                            }
-                        },
-                        onDragCancel = {
-                            val target = safeSelectedIndex
-                            isDragging = false
-                            scope.launch {
-                                launch { indicatorProgress.animateTo(target.toFloat(), motionSpring) }
-                                launch { pressProgress.animateTo(0f, pressSpring) }
-                                launch { dragVelocity.animateTo(0f, spring(dampingRatio = 0.58f, stiffness = 300f)) }
-                            }
-                        }
-                    )
-                }
-        )
     }
 }
 
