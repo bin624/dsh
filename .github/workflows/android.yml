@@ -36,6 +36,16 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Prepare transparent animated whale GIF
+        run: |
+          python3 -m venv .venv-image
+          . .venv-image/bin/activate
+          python -m pip install --quiet Pillow opencv-python-headless
+          python tools/prepare_whale_gif.py app/src/main/res/drawable-nodpi/whale_connected.gif /tmp/whale_connected_transparent.gif
+          cp /tmp/whale_connected_transparent.gif app/src/main/res/drawable-nodpi/whale_connected.gif
+          deactivate
+
+
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug
 
